@@ -1,8 +1,6 @@
-# icml21_code_submission
-
 # NOMU:Neural Optimization-based Model Uncertainty
 
-This is a piece of software used for performing experiments on NOMU uncertainty bounds and the three popular benchmarks (i) Monte-Carlo Dropout [1], (ii) Deep Ensembles [2] and (iii) Gaussian Process. The experiments are described in detail in the attached paper.
+This is a piece of software used for performing experiments on NOMU uncertainty bounds and the three popular benchmarks (i) Monte-Carlo Dropout [1], (ii) Deep Ensembles [2] and (iii) Gaussian Process. The experiments are described in detail in the paper _NOMU: Neural Optimization-based Model Uncertainty_.
 
 
 ## A. Requirements
