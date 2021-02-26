@@ -1,7 +1,3 @@
-project_satus.pdf
-meetings/project_satus.pdf
-*.jar
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
