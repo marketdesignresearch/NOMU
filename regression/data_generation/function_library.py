@@ -6,7 +6,13 @@ This file contains a library of synthetic test functions.
 """
 
 import numpy as np
+from tensorflow.keras.initializers import RandomNormal
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense
 
+#%% helper functions for GaussianBNN
+def update_seed(seed, add):
+    return [None if seed is None else seed + add][0]
 #%% Library of functions
 
 
@@ -309,7 +315,62 @@ def function_library(function="Step", p=[0.4, 1.0, 2.0, -3.0]):
         ma = 229.178784747792
         mi = 0.0
         return lambda x: (shiftedBukin2d(x) - (ma + mi) * 0.5) * 2 / (ma - mi)
+    # --------------------------------------------------------------------------------------------------------------------------
+    # BNNs withstandard Gaussian prior on weights
+    elif function == 'GaussianBNN':
+        layers = p.get('layers',(1, 2**10, 2**11, 2**10, 1))
+        print(f'layers:{layers}')
+        seed = p.get('seed',1)
+        scaled = p.get('scaled',True)
+        print(f'scaled:{scaled}')
+        def gaussianbnn(layers, seed):
+            # input layer
+            x_input = Input(shape=(layers[0], ), name="gaussian_bnn_input_layer")
 
+            # first hidden layer
+            l = Dense(layers[1], activation='relu',
+                      name = "gaussian_bnn_hidden_layer_{}".format(1),
+                      kernel_initializer = RandomNormal(mean=0,stddev=1, seed=seed),
+                      bias_initializer = RandomNormal(mean=0,stddev=1,seed=update_seed(seed,1)))(x_input)
+            print(f'Seed_Layer_1_Kernel: {seed}')
+            print(f'Seed_Layer_1_Bias  : {update_seed(seed,1)}')
+            # hidden layers
+            for i,n in enumerate(layers[2: -1]):
+                l = Dense(n, activation='relu',
+                          name = "gaussian_bnn_hidden_layer_{}".format(i+2),
+                          kernel_initializer = RandomNormal(mean=0,stddev=1, seed=update_seed(seed,2*i+2)),
+                          bias_initializer = RandomNormal(mean=0,stddev=1, seed=update_seed(seed,2*i+3)))(l)
+                print(f'Seed_Layer_{i+2}_Kernel: {update_seed(seed,2*i+2)}')
+                print(f'Seed_Layer_{i+2}_Bias  : {update_seed(seed,2*i+3)}')
+            # output layer
+            x_output = Dense(layers[-1], activation='linear',
+                      name = "gaussian_bnn_output_layer",
+                      kernel_initializer = RandomNormal(mean=0,stddev=1, seed=update_seed(seed,2*(i+1)+2)),
+                      bias_initializer = RandomNormal(mean=0,stddev=1, seed=update_seed(seed,2*(i+1)+3)))(l)
+            print(f'Seed_Layer_{i+3}_Kernel: {update_seed(seed,2*(i+1)+2)}')
+            print(f'Seed_Layer_{i+3}_Bias  : {update_seed(seed,2*(i+1)+3)}')
+            gaussianbnn_tfmodel = Model(inputs=[x_input], outputs=x_output)
+
+            print('\nArchitecture')
+            print(gaussianbnn_tfmodel.summary())
+            f_gaussian_bnn = lambda x : gaussianbnn_tfmodel.predict(x).reshape(-1,)
+            if scaled:
+                #Scaling to \approx Y=[xmin,xmax]
+                xmin= p.get('xmin',-1)
+                print(f'xmin:{xmin}')
+                xmax = p.get('xmax',1)
+                print(f'xmax:{xmax}')
+                resolution = p.get('resolution',1000)
+                print(f'resolution:{resolution}')
+                X = np.linspace(start=xmin,stop=xmax,num=resolution).reshape(-1,1)
+                pred_X = f_gaussian_bnn(X)
+                ma = max(pred_X)
+                mi = min(pred_X)
+                return(lambda x : (f_gaussian_bnn(x)-(ma+mi)*0.5)*2/(ma-mi))
+            else:
+                return(f_gaussian_bnn)
+
+        return(gaussianbnn(layers=layers, seed=seed))
     # --------------------------------------------------------------------------------------------------------------------------
     else:
         raise NotImplementedError("function not (yet) in library!")

@@ -12,9 +12,12 @@ from collections import OrderedDict
 from datetime import datetime
 import pickle
 import numpy as np
+from math import floor
+
 # ------------------------------------------------------------------------- #
 # disable eager execution for tf.__version__ 2.3.0
 import tensorflow as tf
+
 tf.compat.v1.disable_eager_execution()
 # ------------------------------------------------------------------------- #
 
@@ -24,19 +27,15 @@ from algorithms.model_classes.nomu_dj import NOMU_DJ
 from algorithms.model_classes.mc_dropout import McDropout
 from algorithms.model_classes.gaussian_process import GaussianProcess
 from algorithms.model_classes.deep_ensemble import DeepEnsemble
+from algorithms.model_classes.hyper_deep_ensemble import HyperDeepEnsemble
 from plot_functions.plot_functions import plot_predictions, plot_predictions_2d
 from data_generation.data_generator import generate_augmented_data
 from data_generation.function_library import function_library
 from algorithms.util import timediff_d_h_m_s
 from performance_measures.load_and_print_results import load_and_print_results
+from performance_measures.scores import gaussian_nll_score, mse_score
 
-__author__ = 'Hanna Wutte, Jakob Weissteiner, Jakob Heiss'
-__copyright__ = 'Copyright 2020, NOMU: Neural Optimization-based Model Uncertainty'
-__license__ = 'AGPL-3.0'
-__version__ = '0.1.0'
-__maintainer__ = 'Hanna Wutte, Jakob Weissteiner, Jakob Heiss'
-__email__ = 'hanna.wutte@math.ethz.ch, weissteiner@ifi.uzh.ch, jakob.heiss@math.ethz.ch'
-__status__ = 'Dev'
+
 # %% (1) Model parameters
 
 # (i) GROUND TRUTH FUNCTION
@@ -69,7 +68,7 @@ layers = (din, 2 ** 10, 2 ** 10, 2 ** 10, 1)  # layers incl. input and output
 epochs = 2 ** 10
 batch_size = n_train
 l2reg = 1e-8  # L2-regularization on weights of \hat{f} network
-l2reg_sig = l2reg # L2-regularization on weights of \hat{r}_f network
+l2reg_sig = l2reg  # L2-regularization on weights of \hat{r}_f network
 seed_init = 30  # Seed for weight initialization (configuration for Figure 4; set to None for Table 1 and Table 2, respectively)
 
 # (a2) NOMU DISJOINT (inherits all parameters from NOMU)
@@ -85,7 +84,7 @@ optimizer = "Adam"  # select optimizer stochastic gradient descent: 'SGD' or ada
 
 # (c) loss parameters
 # ----------------------------------------------------------------------------------------------------------------------------
-MCaug = False  # Monte Carlo Approximation of the Integrals in the specified Loss with uniform sampling?
+MCaug = True  # Monte Carlo Approximation of the Integrals in the specified Loss with uniform sampling?
 mu_sqr = 0.1  # weight L2-loss for training data points (pi_sqr from paper)
 mu_exp = 0.01  # weight exp-loss (pi_exp from paper)
 c_exp = 30  # constant in exp loss
@@ -157,6 +156,36 @@ softplus_min_var_DE = (
     1e-6  # minimum variance for numerical stability (only used if loss == nll)
 )
 
+
+# (d) Hyper Deep Ensembles (inherits some parameters from NOMU)
+# ----------------------------------------------------------------------------------------------------------------------------
+#####################
+FitHDE = True  # Compare to Deep Ensemble
+#####################
+layers_HDE = (din, 2 ** 8, 2 ** 10, 2 ** 9, 1)
+epochs_HDE = epochs
+batch_size_HDE = batch_size
+test_size_HDE = 0.2  # validation set to calculate the score
+n_train_HDE = floor(
+    n_train * (1 - test_size_HDE)
+)  # number of training points to build hyper deep ensemble
+l2reg_HDE = (l2reg / 10 ** 3, l2reg * 10 ** 3)  # log uniform bounds
+dropout_prob_HDE = (1e-3, 0.9)  # log uniform bounds
+seed_init_HDE = 1
+optimizer_HDE = "Adam"
+clipnorm_HDE = None  # set maximal gradient value or set to None
+loss_HDE = "mse"  # 'nll' or 'mse' currently (mse generates ensemble with only one mean output and does not learn data noise)
+K_HDE = 5
+kappa_HDE = 50
+stratify_HDE = True  # paper=True
+fixed_row_init_HDE = True  # paper=True
+refit_HDE = False
+softplus_min_var_HDE = (
+    1e-6  # minimum variance for numerical stability (only used if loss == nll)
+)
+learning_rate_HDE = None
+
+
 # (v) SAVING
 #############################################################################################################################
 
@@ -169,7 +198,9 @@ os.mkdir(savepath)  # if folder exists automatically an FileExistsError is throw
 
 # %% (2) Data parameters
 ####################################
-number_of_instances = 1  # (configuration for Figure 4; set to 500 for Table 1 and Table 2, respectively)
+number_of_instances = (
+    1  # (configuration for Figure 4; set to 500 for Table 1 and Table 2, respectively)
+)
 my_start_seed = 513  # (configuration for Figure 4; set to 501 for Table 1 and Table 2, respectively)
 seeds = [i for i in range(my_start_seed, number_of_instances + my_start_seed)]
 ####################################
@@ -193,13 +224,14 @@ c_NOMU_DJ = 1
 c_DO = 4
 c_GP = 1
 c_DE = 15
+c_HDE = 10
 
 bounds_variant_NOMU = "standard"
 bounds_variant_NOMU_DJ = "standard"
 bounds_variant_DO = "standard"
 bounds_variant_GP = "standard"
 bounds_variant_DE = "standard"
-
+bounds_variant_HDE = "standard"
 
 # (3a) parameters for ROC-like curves
 
@@ -232,7 +264,7 @@ instance = 1
 for seed in seeds:
 
     # REPRODUCABILITY
-    #------------------------------------------------------------------------------------------------------
+    # ------------------------------------------------------------------------------------------------------
     tf.compat.v1.keras.backend.clear_session()
 
     # 1. Set `python` built-in pseudo-random generator at a fixed value
@@ -245,10 +277,14 @@ for seed in seeds:
     tf.random.set_seed(seed)
 
     # 4. Configure a new global `tensorflow` session
-    session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
-    sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
+    session_conf = tf.compat.v1.ConfigProto(
+        intra_op_parallelism_threads=1, inter_op_parallelism_threads=1
+    )
+    sess = tf.compat.v1.Session(
+        graph=tf.compat.v1.get_default_graph(), config=session_conf
+    )
     tf.compat.v1.keras.backend.set_session(sess)
-    #------------------------------------------------------------------------------------------------------
+    # ------------------------------------------------------------------------------------------------------
 
     experiment_summary_csv = OrderedDict()
     start1 = datetime.now()
@@ -271,6 +307,8 @@ for seed in seeds:
         random_aug=MCaug,
         noise_on_validation=0,
     )
+    if not MCaug:
+        n_aug = x_aug.shape[0]
     print("\nFit selected models")
     print("**************************************************************************")
     if FitNOMU:
@@ -411,6 +449,52 @@ for seed in seeds:
             ),
         )
 
+    if FitHDE:
+        hyper_deep_ensemble = HyperDeepEnsemble()
+        hyper_deep_ensemble.set_parameters(
+            layers=layers_HDE,
+            epochs=epochs_HDE,
+            batch_size=batch_size_HDE,
+            l2reg=l2reg_HDE,
+            optimizer_name=optimizer_HDE,
+            seed_init=seed_init_HDE,
+            loss=loss_HDE,
+            dropout_prob=dropout_prob_HDE,
+            K=K_HDE,
+            kappa=kappa_HDE,
+            test_size=test_size_HDE,
+            stratify=stratify_HDE,
+            fixed_row_init=fixed_row_init_HDE,
+            refit=refit_HDE,
+            softplus_min_var=softplus_min_var_HDE,
+            optimizer_learning_rate=learning_rate_HDE,
+            optimizer_clipnorm=clipnorm_HDE,
+        )
+        hyper_deep_ensemble.hyper_deep_ens(
+            x=x_train[:, :-1],
+            y=y_train,
+            score=gaussian_nll_score,
+            score_single_model=mse_score,
+            random_state=seed,
+            verbose=0,
+        )
+        hyper_deep_ensemble.plot_histories(
+            yscale="linear",
+            save_only=True,
+            absolutepath=os.path.join(
+                savepath,
+                "Plot_History_seed{}_".format(seed)
+                + start1.strftime("%d_%m_%Y_%H-%M-%S"),
+            ),
+        )
+        for key in hyper_deep_ensemble.parameters.keys():
+            experiment_summary_csv[key] = OrderedDict()
+            experiment_summary_csv[key]["date"] = start0.strftime("%d.%m.%Y")
+            experiment_summary_csv[key]["time"] = start1.strftime("%H:%M:%S")
+            experiment_summary_csv[key].update(static_parameters)
+            experiment_summary_csv[key]["model"] = "HDE"
+            experiment_summary_csv[key].update(hyper_deep_ensemble.parameters[key])
+            experiment_summary_csv[key]["bounds_calculation"] = bounds_variant_HDE
     print("\nCalculate ROC & create plots")
     print("**************************************************************************")
 
@@ -452,6 +536,11 @@ for seed in seeds:
             dynamic_parameters_DE=[],  # CHOOSE
             bounds_variant_DE=bounds_variant_DE,
             c_DE=c_DE,
+            # HDE
+            hyper_deep_ensemble=hyper_deep_ensemble if FitHDE else None,
+            dynamic_parameters_HDE=[],  # CHOOSE
+            bounds_variant_HDE=bounds_variant_HDE,
+            c_HDE=c_HDE,
             #
             radPlot=1.1,  # CHOOSE
             save=True,  # CHOOSE
@@ -506,6 +595,11 @@ for seed in seeds:
             dynamic_parameters_DE=[],  # CHOOSE
             bounds_variant_DE=bounds_variant_DE,
             c_DE=c_DE,
+            # HDE
+            hyper_deep_ensemble=hyper_deep_ensemble if FitHDE else None,
+            dynamic_parameters_HDE=[],  # CHOOSE
+            bounds_variant_HDE=bounds_variant_HDE,
+            c_HDE=c_HDE,
             # 1d also
             radPlot=1.1,  # CHOOSE
             save=True,  # CHOOSE

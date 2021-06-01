@@ -15,12 +15,17 @@ import re
 from typing import List, Tuple, Optional, NoReturn, Callable, Dict, Union, Iterable
 
 # Own Modules
-from performance_measures.metrics import update_metrics_list, calculate_uncertainty_bounds, split_mu_sigma
+from performance_measures.metrics import (
+    update_metrics_list,
+    calculate_uncertainty_bounds,
+    split_mu_sigma,
+)
 from algorithms.model_classes.nomu import NOMU
 from algorithms.model_classes.nomu_dj import NOMU_DJ
 from algorithms.model_classes.mc_dropout import McDropout
 from algorithms.model_classes.gaussian_process import GaussianProcess
 from algorithms.model_classes.deep_ensemble import DeepEnsemble
+from algorithms.model_classes.hyper_deep_ensemble import HyperDeepEnsemble
 
 # %%
 def plot_predictions(
@@ -60,6 +65,11 @@ def plot_predictions(
     dynamic_parameters_DE: List[str],
     bounds_variant_DE: str,
     c_DE: float,
+    # HDE
+    hyper_deep_ensemble: Optional[HyperDeepEnsemble],
+    dynamic_parameters_HDE: List[str],
+    bounds_variant_HDE: str,
+    c_HDE: float,
     #
     radPlot: float = 1,
     save: bool = False,
@@ -160,6 +170,17 @@ def plot_predictions(
         Scaling factor for the calculation of the uncertainty bounds. When bounds_variant_DE='standard' this is interpreted as a scalar and
         when bounds_variant_DE='normal' this is intepreted as the coverage probability of the credible interval, i.e, normal_quantile[c_DE] is
         given for the lower/upper bound as Phi^-1((1-/+c_DE)/2), where Phi denotes the cdf of N(0,1).
+    hyper_deep_ensemble :
+        Instance of HyperDeepEnsemble class.
+    dynamic_parameters_HDE :
+        Dynamic parameters for HyperDeepEnsemble models for plot title and info.
+    bounds_variant_HDE :
+        Variant for calculation of uncertainty bounds. For HyperDeepEnsemble one has the options 'standard': [mean+/-c_DE*std] or
+        'normal': [mean+/-normal_quantile[c_DE]*std] on how the credible intervals are computed.
+    c_HDE :
+        Scaling factor for the calculation of the uncertainty bounds. When bounds_variant_HDE='standard' this is interpreted as a scalar and
+        when bounds_variant_DE='normal' this is intepreted as the coverage probability of the credible interval, i.e, normal_quantile[c_HDE] is
+        given for the lower/upper bound as Phi^-1((1-/+c_DE)/2), where Phi denotes the cdf of N(0,1).
     radPlot :
         Box bounds for the plotting area.
     save :
@@ -224,6 +245,8 @@ def plot_predictions(
         c_DE = [c_DE]
     if not isinstance(c_GP, list):
         c_GP = [c_GP]
+    if not isinstance(c_HDE, list):
+        c_HDE = [c_HDE]
 
     # (i) set up plot
     plt.figure(figsize=(16, 9))
@@ -724,7 +747,7 @@ def plot_predictions(
                 interpolation=interpolation,
             )
 
-    # (vii) plot Deep Ensemble Models
+    # (vi) plot Deep Ensemble Models
     if deep_ensemble is not None:
 
         # estimate mean and std
@@ -820,6 +843,120 @@ def plot_predictions(
                         list(deep_ensemble.parameters.keys())[0]
                     ].items()
                     if k not in dynamic_parameters_DE
+                ]
+            )
+        )
+        title_details = title_details.replace(", optimizer", "\noptimizer")
+
+    # (vii) plot Hyper Deep Ensemble
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if hyper_deep_ensemble is not None:
+        # estimate mean and std
+        if x_val is not None:
+            estimates = hyper_deep_ensemble.calculate_mean_std(x=concatenated_data)
+        else:
+            estimates = hyper_deep_ensemble.estimate_models(x=xPlot)
+
+        # plot
+        for ensemble_key, ensemble in hyper_deep_ensemble.models.items():
+            (
+                mu_predictions,
+                std_predictions,
+                mu_predictions_val,
+                std_predictions_val,
+            ) = split_mu_sigma(
+                estimates[ensemble_key],
+                plot_indices=sorted_index,
+                n_val=n_val if x_val is not None else x_val,
+            )
+            # plot the mean output
+            plot_hde = plt.plot(xPlot, mu_predictions, linewidth=linewidth)
+            # plot the bounds
+            for c in c_HDE:
+                B = calculate_uncertainty_bounds(
+                    c=c,
+                    variant=bounds_variant_HDE,
+                    mu_predictions=mu_predictions,
+                    std_predictions=std_predictions,
+                    model_key=None,
+                )
+
+                fill_hde = plt.fill(
+                    np.concatenate([xPlot.reshape(-1, 1), xPlot.reshape(-1, 1)[::-1]]),
+                    np.concatenate(
+                        [B["bounds"]["Lower Bound"], B["bounds"]["Upper Bound"][::-1]]
+                    ),
+                    alpha=transparency,
+                    fc=plot_hde[0].get_color(),
+                    ec="None",
+                )
+
+                # append legend style and label
+                if int(ensemble_key[-1]) > 1:
+                    l = (
+                        "HDE "
+                        + ensemble_key[-1]
+                        + r": $\hat{f}\pm$"
+                        + B["label_bounds"]
+                        + ", ".join(
+                            [""]
+                            + [
+                                k
+                                + ": "
+                                + str(hyper_deep_ensemble.parameters[ensemble_key][k])
+                                for k in dynamic_parameters_HDE
+                            ]
+                        )
+                    )
+                else:
+                    l = (
+                        "HDE: "
+                        + r" $\hat{f}\pm$"
+                        + B["label_bounds"]
+                        + ", ".join(
+                            [""]
+                            + [
+                                k
+                                + ": "
+                                + str(hyper_deep_ensemble.parameters[ensemble_key][k])
+                                for k in dynamic_parameters_HDE
+                            ]
+                        )
+                    )
+                legend_ltys.append((plot_hde[0], fill_hde[0]))
+                legend_labels.append(l)
+
+            # calculate ROC data based on validation data
+            if x_val is not None:
+                ROC_list, label_list, color_list = update_metrics_list(
+                    ROC_list=ROC_list,
+                    label_list=label_list,
+                    color_list=color_list,
+                    label=ensemble_key,
+                    color=plot_hde[0].get_color(),
+                    variant=bounds_variant_HDE,
+                    m=mu_predictions_val,
+                    sig=std_predictions_val,
+                    y_val=y_val,
+                    captured_flag=captured_flag,
+                    c_max=c_max_ROC,
+                    custom_c_grid=custom_c_grid_ROC,
+                    cp_max=cp_max_ROC,
+                    resolution=resolution_ROC,
+                    interpolation=interpolation,
+                )
+
+        title_details = title_details + "\nHyper Deep Ensemble Parameters:\n"
+        title_details = (
+            title_details
+            + " "
+            + ", ".join(
+                [
+                    k + ":{}".format(v)
+                    for k, v in hyper_deep_ensemble.parameters[
+                        list(hyper_deep_ensemble.parameters.keys())[0]
+                    ].items()
+                    if k not in dynamic_parameters_HDE
                 ]
             )
         )
@@ -926,6 +1063,11 @@ def plot_predictions_2d(
     dynamic_parameters_DE: List[str],
     bounds_variant_DE: str,
     c_DE: float,
+    # HDE
+    hyper_deep_ensemble: Optional[HyperDeepEnsemble],
+    dynamic_parameters_HDE: List[str],
+    bounds_variant_HDE: str,
+    c_HDE: float,
     #
     radPlot: float = 1,
     save: bool = False,
@@ -1028,6 +1170,17 @@ def plot_predictions_2d(
     c_DE :
         Scaling factor for the calculation of the uncertainty bounds. When bounds_variant_DE='standard' this is interpreted as a scalar and
         when bounds_variant_DE='normal' this is intepreted as the coverage probability of the credible interval, i.e, normal_quantile[c_DE] is
+        given for the lower/upper bound as Phi^-1((1-/+c_DE)/2), where Phi denotes the cdf of N(0,1).
+    hyper_deep_ensemble :
+        Instance of HyperDeepEnsemble class.
+    dynamic_parameters_HDE :
+        Dynamic parameters for HyperDeepEnsemble models for plot title and info.
+    bounds_variant_HDE :
+        Variant for calculation of uncertainty bounds. For HyperDeepEnsemble one has the options 'standard': [mean+/-c_HDE*std] or
+        'normal': [mean+/-normal_quantile[c_HDE]*std] on how the credible intervals are computed.
+    c_HDE :
+        Scaling factor for the calculation of the uncertainty bounds. When bounds_variant_HDE='standard' this is interpreted as a scalar and
+        when bounds_variant_HDE='normal' this is intepreted as the coverage probability of the credible interval, i.e, normal_quantile[c_HDE] is
         given for the lower/upper bound as Phi^-1((1-/+c_DE)/2), where Phi denotes the cdf of N(0,1).
     radPlot :
         Box bounds for the plotting area.
@@ -1247,7 +1400,6 @@ def plot_predictions_2d(
                 xPlot[1],
                 y.T[0].reshape(resolution, resolution),
                 x_train,
-                x_aug,
                 y_train,
                 linewidth=linewidth,
                 markersize=markersize,
@@ -1381,7 +1533,7 @@ def plot_predictions_2d(
                     interpolation=interpolation,
                 )
 
-    # (vi) plot Gaussian Process (GP) Models
+    # (v) plot Gaussian Process (GP) Models
     if gp is not None:
 
         # estimate mean and std
@@ -1476,7 +1628,7 @@ def plot_predictions_2d(
                 interpolation=interpolation,
             )
 
-    # (vii) plot Deep Ensemble Models
+    # (vi) plot Deep Ensemble Models
     if deep_ensemble is not None:
 
         # estimate mean and std
@@ -1567,7 +1719,98 @@ def plot_predictions_2d(
                     interpolation=interpolation,
                 )
 
-    # (ix) save plot and title details and ROC
+    # (vii) plot Hyper Deep Ensemble
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if hyper_deep_ensemble is not None:
+        # estimate mean and std
+        if x_val is not None:
+            concatenated_data = np.concatenate((x_grid, np.squeeze(x_val)), axis=0)
+            estimates = hyper_deep_ensemble.calculate_mean_std(x=concatenated_data)
+        else:
+            estimates = hyper_deep_ensemble.calculate_mean_std(x=x_grid)
+
+        # plot each model in class instance
+        for ensemble_key, ensemble in hyper_deep_ensemble.models.items():
+            short_ensemble_key = "HDE_{}".format(
+                int(re.findall(r"\d+", ensemble_key)[0])
+            )
+            (
+                mu_predictions,
+                std_predictions,
+                mu_predictions_val,
+                std_predictions_val,
+            ) = split_mu_sigma(
+                estimates[ensemble_key],
+                plot_indices=np.arange(resolution ** din),
+                n_val=n_val if x_val is not None else x_val,
+            )
+
+            # bounds
+            B = calculate_uncertainty_bounds(
+                c=c_HDE,
+                variant=bounds_variant_HDE,
+                mu_predictions=mu_predictions,
+                std_predictions=std_predictions,
+                model_key=ensemble_key,
+            )
+            if only_uncertainty:
+                y = B["uncertainty"]
+                title = "Plot Shows Uncertainty of " + B["label_uncertainty"]
+            else:
+                y = B["bounds"]["Upper Bound"]
+                title = "Plot Shows Upper Bound of " + B["label_bounds"]
+
+            title_details = "\nStatic Parameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in static_parameters.items()]
+            )
+            title_details += "\nParameters: " + ", ".join(
+                [
+                    k + ":{}".format(v)
+                    for k, v in hyper_deep_ensemble.parameters[ensemble_key].items()
+                    if k not in dynamic_parameters_HDE
+                ]
+            )
+            title_details = title_details.replace(", optimizer", "\noptimizer")
+            title_details_dict[short_ensemble_key] = ensemble_key + title_details
+
+            if show_details_title:
+                title += title_details
+            fig = fig_2d(
+                xPlot[0],
+                xPlot[1],
+                y.T[0].reshape(resolution, resolution),
+                x_train,
+                y_train,
+                linewidth=linewidth,
+                markersize=markersize,
+                colornorm=tmpcolornorm,
+                title=title,
+                radPlot=radPlot,
+                figsize=figsize,
+            )
+            fig_dict[short_ensemble_key] = fig
+
+            # calculate ROC data based on validation data
+            if x_val is not None:
+                ROC_list, label_list, color_list = update_metrics_list(
+                    ROC_list=ROC_list,
+                    label_list=label_list,
+                    color_list=color_list,
+                    label=ensemble_key,
+                    color=next(colorcylcer),
+                    variant=bounds_variant_HDE,
+                    m=mu_predictions_val,
+                    sig=std_predictions_val,
+                    y_val=y_val,
+                    captured_flag=captured_flag,
+                    c_max=c_max_ROC,
+                    custom_c_grid=custom_c_grid_ROC,
+                    cp_max=cp_max_ROC,
+                    resolution=resolution_ROC,
+                    interpolation=interpolation,
+                )
+
+    # (viii) save plot and title details and ROC
     savepath = None
     if save:
 
@@ -1795,6 +2038,11 @@ def plot_irradiance(
     dynamic_parameters_DE: List[str],
     bounds_variant_DE: str,
     c_DE: float,
+    # HDE
+    hyper_deep_ensemble: Optional[HyperDeepEnsemble],
+    dynamic_parameters_HDE: List[str],
+    bounds_variant_HDE: str,
+    c_HDE: float,
     #
     radPlot: float = 1.01,
     save: bool = False,
@@ -1887,6 +2135,17 @@ def plot_irradiance(
         Scaling factor for the calculation of the uncertainty bounds. When bounds_variant_DE='standard' this is interpreted as a scalar and
         when bounds_variant_DE='normal' this is intepreted as the coverage probability of the credible interval, i.e, normal_quantile[c_DE] is
         given for the lower/upper bound as Phi^-1((1-/+c_DE)/2), where Phi denotes the cdf of N(0,1).
+    hyper_deep_ensemble :
+        Instance of HyperDeepEnsemble class.
+    dynamic_parameters_HDE :
+        Dynamic parameters for HyperDeepEnsemble models for plot title and info.
+    bounds_variant_HDE :
+        Variant for calculation of uncertainty bounds. For HyperDeepEnsemble one has the options 'standard': [mean+/-c_HDE*std] or
+        'normal': [mean+/-normal_quantile[c_HDE]*std] on how the credible intervals are computed.
+    c_HDE :
+        Scaling factor for the calculation of the uncertainty bounds. When bounds_variant_HDE='standard' this is interpreted as a scalar and
+        when bounds_variant_HDE='normal' this is intepreted as the coverage probability of the credible interval, i.e, normal_quantile[c_HDE] is
+        given for the lower/upper bound as Phi^-1((1-/+c_HDE)/2), where Phi denotes the cdf of N(0,1).
     radPlot :
         Box bounds for the plotting area.
     save :
@@ -1930,8 +2189,10 @@ def plot_irradiance(
         c_GP = [c_GP]
     if not isinstance(c_DE, list):
         c_DE = [c_DE]
+    if not isinstance(c_HDE, list):
+        c_HDE = [c_HDE]
 
-    # (iii) plot NN uncertainty bounds
+    # (i) plot NOMU uncertainty bounds
     if nomu is not None:
         title, title_details, xPlot, sorted_index, concatenated_data = set_up_plot(
             x_train,
@@ -2161,7 +2422,7 @@ def plot_irradiance(
                 ltys=[(plot_nnub_dj[0], fill_nnub_dj[0])],
             )
             col += 1
-    # (iv) plot Gaussian Process (GP) models
+    # (ii) plot Gaussian Process (GP) models
     if gp is not None:
         title, title_details, xPlot, sorted_index, concatenated_data = set_up_plot(
             x_train,
@@ -2225,7 +2486,7 @@ def plot_irradiance(
                 mu_predictions,
                 linewidth=linewidth,
                 label="GP"
-                + r": $\hat{f}$",  # + ', '.join([''] + [k + ': ' + str(gp.parameters[key][k]) for k in dynamic_parameters_GP]),
+                + r": $\hat{f}$",
                 linestyle="-",
                 color="C" + str(col),
             )
@@ -2262,7 +2523,7 @@ def plot_irradiance(
             )
             col += 1
 
-    # (v) plot MC Dropout Models
+    # (iii) plot MC Dropout Models
     if mc_dropout is not None:
         title, title_details, xPlot, sorted_index, concatenated_data = set_up_plot(
             x_train,
@@ -2313,7 +2574,7 @@ def plot_irradiance(
                 mu_predictions,
                 linewidth=linewidth,
                 label="MCDO"
-                + r": $\hat{f}$",  # + ', '.join([''] + [k + ': ' + str(mc_dropout.parameters[key][k]) for k in dynamic_parameters_DO]),
+                + r": $\hat{f}$",
                 color="C" + str(col),
             )
             # plot bounds
@@ -2374,7 +2635,7 @@ def plot_irradiance(
             ltys=[(plot_dp[0], fill_do[0])],
         )
 
-    # (vii) plot Deep Ensemble Models
+    # (iv) plot Deep Ensemble Models
     if deep_ensemble is not None:
         title, title_details, xPlot, sorted_index, concatenated_data = set_up_plot(
             x_train,
@@ -2414,7 +2675,7 @@ def plot_irradiance(
                 mu_predictions,
                 linewidth=linewidth,
                 label="DE"
-                + r": $\hatf$",  # + ', '.join([''] + [k + ': ' + str(deep_ensemble.parameters[ensemble_key][k]) for k in dynamic_parameters_DE]),
+                + r": $\hatf$",
                 color="C" + str(col),
             )
             # plot the bounds
@@ -2436,7 +2697,7 @@ def plot_irradiance(
                     fc=plot_de[0].get_color(),
                     ec="None",
                     label="DE: " + B["label_bounds"],
-                )  # + ', '.join([''] + [k + ': ' + str(deep_ensemble.parameters[ensemble_key][k]) for k in dynamic_parameters_DE]))
+                )
             col += 1
 
         title_details = title_details + "\nDeep Ensemble Parameters:\n"
@@ -2465,6 +2726,100 @@ def plot_irradiance(
             model_name="DE",
             labels=["DE: " + r" $\hat{f}\pm$" + B["label_bounds"]],
             ltys=[(plot_de[0], fill_de[0])],
+        )
+
+    # (v) plot Hyper Deep Ensemble
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if hyper_deep_ensemble is not None:
+        title, title_details, xPlot, sorted_index, concatenated_data = set_up_plot(
+            x_train,
+            y_train,
+            x_aug,
+            y_aug,
+            x_val,
+            y_val,
+            markersize,
+            start,
+            end,
+            static_parameters,
+            resolution,
+        )
+        # estimate mean and std
+        if x_val is not None:
+            estimates = hyper_deep_ensemble.calculate_mean_std(x=concatenated_data)
+        else:
+            estimates = hyper_deep_ensemble.estimate_models(x=xPlot)
+
+        # plot
+        col = 4
+        for ensemble_key, ensemble in hyper_deep_ensemble.models.items():
+            (
+                mu_predictions,
+                std_predictions,
+                mu_predictions_val,
+                std_predictions_val,
+            ) = split_mu_sigma(
+                estimates[ensemble_key],
+                plot_indices=sorted_index,
+                n_val=n_val if x_val is not None else x_val,
+            )
+            # plot the mean output
+            plot_hde = plt.plot(
+                xPlot,
+                mu_predictions,
+                linewidth=linewidth,
+                label="HDE"
+                + r": $\hatf$",
+                color="C" + str(col),
+            )
+            # plot the bounds
+            for c in c_HDE:
+                B = calculate_uncertainty_bounds(
+                    c=c,
+                    variant=bounds_variant_HDE,
+                    mu_predictions=mu_predictions,
+                    std_predictions=std_predictions,
+                    model_key=None,
+                )
+
+                fill_hde = plt.fill(
+                    np.concatenate([xPlot.reshape(-1, 1), xPlot.reshape(-1, 1)[::-1]]),
+                    np.concatenate(
+                        [B["bounds"]["Lower Bound"], B["bounds"]["Upper Bound"][::-1]]
+                    ),
+                    alpha=transparency,
+                    fc=plot_hde[0].get_color(),
+                    ec="None",
+                    label="HDE: " + B["label_bounds"],
+                )
+            col += 1
+
+        title_details = title_details + "\nHyper Deep Ensemble Parameters:\n"
+        title_details = (
+            title_details
+            + " "
+            + ", ".join(
+                [
+                    k + ":{}".format(v)
+                    for k, v in hyper_deep_ensemble.parameters[
+                        list(hyper_deep_ensemble.parameters.keys())[0]
+                    ].items()
+                    if k not in dynamic_parameters_HDE
+                ]
+            )
+        )
+        title_details = title_details.replace(", optimizer", "\noptimizer")
+
+        finish_and_save_plot(
+            title,
+            title_details,
+            show_details_title,
+            save,
+            filepath,
+            static_parameters,
+            model_name="HDE",
+            labels=["HDE: " + r" $\hat{f}\pm$" + B["label_bounds"]],
+            ltys=[(plot_hde[0], fill_hde[0])],
         )
 
 

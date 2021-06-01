@@ -40,7 +40,7 @@ def generate_augmented_data(
     eps: float = 0,
     c_aug: float = 10,
     n_aug: int = 2 ** 7,
-    random_aug: bool = False,
+    random_aug: bool = True,
     x_min_aug: float = -1 - 0.1,
     x_max_aug: float = 1 + 0.1,
     data: Optional[str] = None,
@@ -186,7 +186,7 @@ def generate_augmented_data(
 
     # data prep (concatenate training and random data & add flag)
     x_train = np.concatenate((x_train, np.zeros((n_train, 1))), axis=-1)
-    x_aug = np.concatenate((x_aug, np.ones((n_aug, 1))), axis=-1)
+    x_aug = np.concatenate((x_aug, np.ones((x_aug.shape[0], 1))), axis=-1)
     x = np.concatenate((x_train, x_aug))
     y = np.concatenate((np.reshape(y_train, (n_train, 1)), y_aug))
     print("input X:\n", pd.DataFrame(x))

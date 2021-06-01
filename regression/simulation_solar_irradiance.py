@@ -10,9 +10,12 @@ import random
 from collections import OrderedDict
 from datetime import datetime
 import numpy as np
+from math import floor
+
 # ------------------------------------------------------------------------- #
 # disable eager execution for tf.__version__ 2.3.0
 import tensorflow as tf
+
 tf.compat.v1.disable_eager_execution()
 # ------------------------------------------------------------------------- #
 
@@ -22,18 +25,13 @@ from algorithms.model_classes.nomu_dj import NOMU_DJ
 from algorithms.model_classes.mc_dropout import McDropout
 from algorithms.model_classes.gaussian_process import GaussianProcess
 from algorithms.model_classes.deep_ensemble import DeepEnsemble
+from algorithms.model_classes.hyper_deep_ensemble import HyperDeepEnsemble
 from plot_functions.plot_functions import plot_irradiance, plot_predictions
 from data_generation.data_generator import generate_augmented_data
 from algorithms.util import timediff_d_h_m_s
 from data_generation.import_data import import_irradiance
+from performance_measures.scores import gaussian_nll_score, mse_score
 
-__author__ = 'Hanna Wutte, Jakob Weissteiner, Jakob Heiss'
-__copyright__ = 'Copyright 2020, NOMU: Neural Optimization-based Model Uncertainty'
-__license__ = 'AGPL-3.0'
-__version__ = '0.1.0'
-__maintainer__ = 'Hanna Wutte, Jakob Weissteiner, Jakob Heiss'
-__email__ = 'hanna.wutte@math.ethz.ch, weissteiner@ifi.uzh.ch, jakob.heiss@math.ethz.ch'
-__status__ = 'Dev'
 # %% (0) REPRODUCABILITY
 tf.compat.v1.keras.backend.clear_session()
 
@@ -50,7 +48,9 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 
 # 4. Configure a new global `tensorflow` session
-session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
+session_conf = tf.compat.v1.ConfigProto(
+    intra_op_parallelism_threads=1, inter_op_parallelism_threads=1
+)
 sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
 tf.compat.v1.keras.backend.set_session(sess)
 # %% (1) Model parameters
@@ -180,6 +180,36 @@ softplus_min_var_DE = (
     1e-6  # minimum variance for numerical stability (only used if loss == nll)
 )
 
+
+# (d) Hyper Deep Ensembles (inherits some parameters from NOMU)
+# ----------------------------------------------------------------------------------------------------------------------------
+#####################
+FitHDE = True  # Compare to Deep Ensemble
+#####################
+layers_HDE = (din, 256, 1024, 512, 1)
+epochs_HDE = epochs
+batch_size_HDE = batch_size
+test_size_HDE = 0.2  # validation set to calculate the score
+n_train_HDE = floor(
+    n_train * (1 - test_size_HDE)
+)  # number of training points to build hyper deep ensemble
+l2reg_HDE = (l2reg / 10 ** 3, l2reg * 10 ** 3)  # log uniform bounds
+dropout_prob_HDE = (1e-3, 0.9)  # log uniform bounds
+seed_init_HDE = 1
+optimizer_HDE = "Adam"
+clipnorm_HDE = None  # set maximal gradient value or set to None
+loss_HDE = "mse"  # 'nll' or 'mse' currently (mse generates ensemble with only one mean output and does not learn data noise)
+K_HDE = 5
+kappa_HDE = 50
+stratify_HDE = True  # paper=True
+fixed_row_init_HDE = True  # paper=True
+refit_HDE = False
+softplus_min_var_HDE = (
+    1e-6  # minimum variance for numerical stability (only used if loss == nll)
+)
+learning_rate_HDE = None
+
+
 # (iv) SAVING & LOADING
 #############################################################################################################################
 savemodel = True  # save models and parameters?
@@ -191,7 +221,7 @@ static_parameters = OrderedDict(
     zip(["function_name", "n_train", "n_aug"], [function_name, n_train, n_aug])
 )
 random_locations = True
-#seed = 505  #(configuration for Figure 5 and Figure 16, respectively)
+# seed = 505  #(configuration for Figure 5 and Figure 16, respectively)
 
 static_parameters["random_locations"] = random_locations
 static_parameters["seed"] = SEED
@@ -226,6 +256,7 @@ if train_size < 1:
     batch_size = n_train
     batch_size_BNN = batch_size
     batch_size_DE = batch_size
+    batch_size_HDE = batch_size
     batch_size_DO = batch_size
 
 # determine accurate l2_reg for DO and DE
@@ -236,9 +267,7 @@ l2reg_DE = l2reg_DE / n_train
 savepath = None
 loadpath = None
 if savemodel:
-    foldername = "_".join(
-        [function_name, datetime.now().strftime("%d_%m_%Y_%H-%M-%S")]
-    )
+    foldername = "_".join([function_name, datetime.now().strftime("%d_%m_%Y_%H-%M-%S")])
     savepath = os.path.join(os.getcwd(), foldername)
     os.mkdir(savepath)  # if folder exists automatically an FileExistsError is thrown
 if loadmodel:
@@ -440,18 +469,68 @@ print(
     "\nTraining Time Elapsed: {}d {}h:{}m:{}s".format(*timediff_d_h_m_s(end0 - start0)),
     "(" + datetime.now().strftime("%H:%M %d-%m-%Y") + ")",
 )
+
+#%% (4e) Hyper Deep Ensemble
+if FitHDE:
+    hyper_deep_ensemble = HyperDeepEnsemble()
+    if loadmodel:
+        hyper_deep_ensemble.load_models(
+            absolutepath=loadpath, model_numbers=[1], verbose=0
+        )
+    else:
+        hyper_deep_ensemble.set_parameters(
+            layers=layers_HDE,
+            epochs=epochs_HDE,
+            batch_size=batch_size_HDE,
+            l2reg=l2reg_HDE,
+            optimizer_name=optimizer_HDE,
+            seed_init=seed_init_HDE,
+            loss=loss_HDE,
+            dropout_prob=dropout_prob_HDE,
+            K=K_HDE,
+            kappa=kappa_HDE,
+            test_size=test_size_HDE,
+            stratify=stratify_HDE,
+            fixed_row_init=fixed_row_init_HDE,
+            refit=refit_HDE,
+            softplus_min_var=softplus_min_var_HDE,
+            optimizer_learning_rate=learning_rate_HDE,
+            optimizer_clipnorm=clipnorm_HDE,
+        )
+        hyper_deep_ensemble.hyper_deep_ens(
+            x=x_train[:, :-1],
+            y=y_train,
+            score=gaussian_nll_score,
+            score_single_model=mse_score,
+            random_state=SEED,
+            verbose=1,
+        )
+        hyper_deep_ensemble.plot_histories(
+            yscale="linear",
+            save_only=True,
+            absolutepath=os.path.join(
+                savepath,
+                "Plot_History_seed{}_".format(SEED)
+                + start0.strftime("%d_%m_%Y_%H-%M-%S"),
+            ),
+        )
+    if savemodel:
+        hyper_deep_ensemble.save_models(absolutepath=savepath)
+
 # %% (5) Set plot parameters
 c_NOMU = 2
 c_NOMU_DJ = 2
 c_DO = 5
 c_GP = 1
 c_DE = 5
+c_HDE = 20
 
 bounds_variant_NOMU = "standard"
 bounds_variant_NOMU_DJ = "standard"
 bounds_variant_DO = "standard"
 bounds_variant_GP = "standard"
 bounds_variant_DE = "standard"
+bounds_variant_HDE = "standard"
 
 
 # (5a) parameters for ROC-like curves
@@ -513,6 +592,11 @@ plot_predictions(
     dynamic_parameters_DE=[],  # CHOOSE
     bounds_variant_DE=bounds_variant_DE,
     c_DE=c_DE,
+    # HDE
+    hyper_deep_ensemble=hyper_deep_ensemble if FitHDE else None,
+    dynamic_parameters_HDE=[],  # CHOOSE
+    bounds_variant_HDE=bounds_variant_HDE,
+    c_HDE=c_HDE,
     #
     radPlot=1.01,  # CHOOSE
     save=True,  # CHOOSE
@@ -563,6 +647,11 @@ plot_irradiance(
     dynamic_parameters_DE=[],  # CHOOSE
     bounds_variant_DE=bounds_variant_DE,
     c_DE=c_DE,
+    # HDE
+    hyper_deep_ensemble=hyper_deep_ensemble if FitHDE else None,
+    dynamic_parameters_HDE=[],  # CHOOSE
+    bounds_variant_HDE=bounds_variant_HDE,
+    c_HDE=c_HDE,
     #
     save=True,  # CHOOSE
     markersize=4,  # CHOOSE
