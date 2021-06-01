@@ -10,10 +10,12 @@ from bayesian_optimization.nn_models.nn_model import NNModel
 from bayesian_optimization.utils.utils import config_int_or_none
 from tensorflow.keras import backend as K
 from tensorflow.keras.initializers import RandomUniform  # , GlorotUniform
-from tensorflow.keras.layers import Input, Dense, concatenate
+from tensorflow.keras.layers import Input, Dense, concatenate, Dropout
 from tensorflow.keras.losses import MeanSquaredError, Loss
 from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.regularizers import l2
+from bayesian_optimization.acq_optimizer.gridsearch import GridSearch
 
 
 class DeepEnsembleModel(NNModel):
@@ -31,12 +33,13 @@ class DeepEnsembleModel(NNModel):
             softplus_min_var: float,
             model_name: str,
             loss=None,
-            no_noise: bool = False
+            no_noise: bool = False,
+            dropout_prob: float = 0
     ):
         self.model_name = model_name
         self.softplus_min_var = softplus_min_var
         self._n_hidden_layers = len(layers[0][2: -1])
-
+        self.dropout_prob = dropout_prob
         self.no_noise = no_noise
 
         super().__init__(layers, activation, RSN, s, seed, l2reg, loss)
@@ -67,6 +70,9 @@ class DeepEnsembleModel(NNModel):
             kernel_regularizer=l2(self.l2reg),
             bias_regularizer=l2(self.l2reg)
         )(x_input)
+        if self.dropout_prob != 0:
+            layer = Dropout(self.dropout_prob)(layer)
+
 
         # hidden layers
         for i, n in enumerate(self.main_layers[2: -1]):
@@ -86,6 +92,8 @@ class DeepEnsembleModel(NNModel):
                 ),
                 kernel_regularizer=l2(self.l2reg),
                 bias_regularizer=l2(self.l2reg))(layer)
+        if self.dropout_prob != 0:
+            layer = Dropout(self.dropout_prob)(layer)
 
         # output layer with two parameters for each output dimension:
         mu_output = Dense(
@@ -158,6 +166,33 @@ class DeepEnsembleModel(NNModel):
             softplus_min_var=self.softplus_min_var,
             model_name=self.model_name + "_{}".format(base_seed),
             no_noise=self.no_noise
+        )
+
+    def create_copy_advanced(self, seed_counter, **kwargs):
+        """creating a copy of a Network model
+        :param seed_counter: seed to copy
+        :param dropout_prob: regularizer factor to use
+        :param l2reg: regularizer factor to use
+        :return:
+        """
+        options = {
+            "dropout_prob": self.dropout_prob,
+            "l2reg": self.l2reg,
+            "model_name": self.model_name + "_{}".format(seed_counter),
+        }
+        options.update(kwargs)
+        return DeepEnsembleModel(
+            layers=self.layers,
+            activation=self.activation,
+            RSN=self.RSN,
+            s=self.s,
+            seed=self._update_seed(self.seed, seed_counter * (2 * (self._n_hidden_layers + 2) + 3 + 1)),
+            l2reg=options["l2reg"],
+            loss=self.loss,
+            softplus_min_var=self.softplus_min_var,
+            model_name=options["model_name"],
+            no_noise=self.no_noise,
+            dropout_prob=options["dropout_prob"]
         )
 
     def fit(self, x: np.array, y: np.array, *args, **kwargs) -> Model:

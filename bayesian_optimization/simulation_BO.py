@@ -33,21 +33,15 @@ from bayesian_optimization.acq_optimizer.acq_optimizer import ACQOptimizer
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-__author__ = 'Marius Hoegger, Hanna Wutte, Jakob Weissteiner, Jakob Heiss'
-__copyright__ = 'Copyright 2020, NOMU: Neural Optimization-based Model Uncertainty'
-__license__ = 'AGPL-3.0'
-__version__ = '0.1.0'
-__maintainer__ = 'Hanna Wutte, Jakob Weisstpythoineiner, Jakob Heiss'
-__email__ = 'mariusalexander.hoegger@uzh.ch, hanna.wutte@math.ethz.ch, weissteiner@ifi.uzh.ch, jakob.heiss@math.ethz.ch'
-__status__ = 'Dev'
-
 #%%
 
 method_names = {
     "SampleMethod": "MC Dropout",
     "SingleMethodBounded": "NOMU",
+    "SingleMethodBoundedDropout": "NOMUD",
     "GP": "Gaussian Process",
-    "EnsembleMethod": "Deep Ensemble"
+    "EnsembleMethod": "Deep Ensemble",
+    "HyperDeepEnsembleMethod": "Hyper Deep Ensemble"
 }
 
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
@@ -81,8 +75,15 @@ def run(cont, steps, function, output_path, seed):
         cont.nn_model.model = None
         cont.nn_model.loss = None
     cont.estimator.models = None
+    cont.estimator.weighted_models = None
+    cont.estimator.HPE = None
     if output_path is not None:
+        #tf.compat.v1.enable_eager_execution()
         os.makedirs(output_path, exist_ok=True)
+        cont.estimator.context = None
+        cont.inspector.context = None
+        cont.acq_optimizer.context = None
+        cont.model_optimizer = None
         pickle.dump(cont, open("{}/context.pickle".format(output_path), "wb"))
     K.clear_session()
     all_regrets = []
@@ -108,9 +109,18 @@ def loop_methods(ctxt, conf, insp):
         all_context.append(setup_DE(conf, ctxt, insp))
         names.append("DE")
 
+    if "HDE" in config:
+        all_context.append(setup_HDE(conf, ctxt, insp))
+        names.append("HDE")
+
     if "NOMU" in config:
         all_context.append(setup_NOMU(conf, ctxt, insp))
         names.append("NOMU")
+
+    if "NOMUD" in config:
+        all_context.append(setup_NOMUD(conf, ctxt, insp))
+        names.append("NOMUD")
+
     return all_context, names
 
 if __name__ == "__main__":
@@ -135,6 +145,7 @@ if __name__ == "__main__":
         'do_inspect_optimization': 'false',
         'do_inspect_acq': 'false',
         'store_estimators': 'false',
+        'inspector_path': config["BO"]["output_path"],
     }
     config_inspector = ConfigObj()
 
@@ -169,6 +180,7 @@ if __name__ == "__main__":
                 all_seed_regrets[method] = []
             output_path = None
             if base_path is not None:
+                os.makedirs(base_path, exist_ok=True)
                 output_path = "{}/{}/{}_steps_{}".format(base_path, names[i], steps, time.time())
                 cont.inspector.set_inspector_path(output_path)
             print("starting {} estimator...".format(method))
