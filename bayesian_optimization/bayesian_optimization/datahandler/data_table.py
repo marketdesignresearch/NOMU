@@ -40,6 +40,7 @@ class BODataTable():
         "SampleMethod": "DO",
         "GP": "GP",
         "EnsembleMethod": "DE",
+        "HyperDeepEnsembleMethod": "HDE",
     }
 
     ACQS = {

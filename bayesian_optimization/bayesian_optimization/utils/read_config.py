@@ -2,8 +2,11 @@ from bayesian_optimization.functions import *
 from bayesian_optimization.context.context import Context
 from copy import deepcopy
 from bayesian_optimization.nn_models.nomu_model import NOMUModel
+from bayesian_optimization.nn_models.nomu_model_dropout import NOMUModelDropout
+
 from bayesian_optimization.estimators.single import SingleMethod
 from bayesian_optimization.estimators.single_bounded import SingleMethodBounded
+from bayesian_optimization.estimators.single_bounded_dropout import SingleMethodBoundedDropout
 from bayesian_optimization.acquisition.acquisition_function import AcquisitionFunction
 from bayesian_optimization.functions import *
 from bayesian_optimization.context.context import Context
@@ -15,6 +18,7 @@ from bayesian_optimization.nn_models.deep_ensemble_model import DeepEnsembleMode
 from bayesian_optimization.estimators.gp import GP
 from bayesian_optimization.estimators.ensemble import EnsembleMethod
 from bayesian_optimization.data_gen.generate_samples import get_new_samples
+from bayesian_optimization.estimators.hyper_deep_ensemble import HyperDeepEnsembleMethod
 from configobj import ConfigObj
 from tensorflow.keras.optimizers import Adam
 import numpy as np
@@ -83,7 +87,7 @@ def read_BO(config, seed):
     function = supported_function[config["BO"]["function"]]
     context = Context(callback=function.evaluate_scaled)
     samples_x = get_new_samples(seed, config)
-
+    context.set_out_path(config["BO"]["output_path"])
     return context, function, samples_x
 
 
@@ -134,6 +138,43 @@ def setup_DE(config, context, inspector):
         context_DE.set_model_optimizer(optimizer_de)
     return context_DE
 
+def setup_HDE(config, context, inspector):
+    hde_model = DeepEnsembleModel.read_from_config(config["HDE"])
+    context_HDE = deepcopy(context)
+    context_HDE.set_network_model(hde_model)
+    context_HDE.set_estimator(HyperDeepEnsembleMethod(
+        context=context_HDE,
+        epochs=config["HDE"].as_int("epochs"),
+        global_seed=config["HDE"].as_int("global_seed"),
+        random_seed=config["HDE"].as_bool("random_seed"),
+        test_size=config["HDE"].as_float("test_size"),
+        kappa=config["HDE"].as_int("kappa"),
+        K=config["HDE"].as_int("K"),
+        dropout_probability_range=tuple([float(i) for i in config["HDE"].as_list("dropout_probability_range")]),
+        l2reg_range=tuple([float(i) for i in config["HDE"].as_list("l2reg_range")]),
+        fixed_row_init=config["HDE"].as_bool("fixed_row_init")
+    ))
+    context_HDE.set_inspector(deepcopy(inspector))
+
+    if "optimizer" in config["HDE"]:
+        optimizer_de = DeepEnsembleModel.SUPPORTED_ACQ_OPTIMIZER[config["HDE"]["optimizer"]].read_from_config(config)
+        context_HDE.set_model_optimizer(optimizer_de)
+    return context_HDE
+
+def setup_NOMUD(config, context, inspector):
+    context_NOMUD = deepcopy(context)
+    ub_model = NOMUModelDropout.read_from_config(config["NOMUD"])
+    context_NOMUD.set_estimator(SingleMethodBoundedDropout(
+        epochs=config["NOMUD"].as_int("epochs"),
+        dropout_probability_range=tuple([float(i) for i in config["NOMUD"].as_list("dropout_probability_range")]),
+        r_max=config["NOMUD"].as_float("r_max"),
+        r_min=config["NOMUD"].as_float("r_min"),
+        mip=config["NOMUD"].as_bool("mip"),
+    ))
+    context_NOMUD.set_network_model(ub_model)
+    context_NOMUD.set_inspector(deepcopy(inspector))
+    setup_method_specifics(NOMUModelDropout, config["NOMUD"], context_NOMUD)
+    return context_NOMUD
 
 def setup_GP(config, context, inspector):
     context_GP = deepcopy(context)

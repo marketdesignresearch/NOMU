@@ -1,3 +1,6 @@
+from datetime import timedelta
+from typing import Tuple
+
 import numpy as np
 
 
@@ -42,6 +45,7 @@ def config_string_or_none(input):
         return None
     return str(input)
 
+
 def config_list_int_or_none(config, key):
     if config[key] == "":
         return None
@@ -58,5 +62,27 @@ def config_multiplication_list(config, key):
         return [float(list[0])]*list[2]
     else:
         return [float(i) for i in config.as_list(key)]
+
+def timediff_d_h_m_s(td: timedelta) -> Tuple[int,int,int,int]:
+
+    """Measures time difference in days, hours,minutes and seconds.
+
+            Arguments
+            ----------
+            td :
+                A timedelta object from the datetime package, representing the difference between two
+                datetime.times.
+
+            Return
+            ----------
+            A tuple representing the td object as days, hours, minutes, and seconds.
+
+    """
+
+    # can also handle negative datediffs
+    if (td).days < 0:
+        td = -td
+        return -(td.days), -int(td.seconds/3600), -int(td.seconds/60)%60, -(td.seconds%60)
+    return td.days, int(td.seconds/3600), int(td.seconds/60)%60, td.seconds%60
 
 

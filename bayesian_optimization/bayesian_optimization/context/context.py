@@ -51,6 +51,10 @@ class Context:
         # add the handlers to the logger
         self._logger.addHandler(ch)
         self.bo_step = 0
+        self.out_path = None
+
+    def set_out_path(self, path):
+        self.out_path = path
 
     def reset_model_optimizer(self) -> NoReturn:
         """reset the optimizer so that is looses it's momentum.
