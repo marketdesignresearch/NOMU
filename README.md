@@ -1,6 +1,8 @@
+# nips21_code_submission
+
 # NOMU:Neural Optimization-based Model Uncertainty
 
-This is a piece of software used for performing experiments on NOMU uncertainty bounds and the three popular benchmarks (i) Monte-Carlo Dropout [1], (ii) Deep Ensembles [2] and (iii) Gaussian Process. The experiments are described in detail in the paper _NOMU: Neural Optimization-based Model Uncertainty_.
+This is a piece of software used for performing experiments on NOMU uncertainty bounds and the three popular benchmarks (i) Monte-Carlo Dropout [1], (ii) Deep Ensembles [2], (iii) Hyper Deep Ensembles [3] and (iv) Gaussian Process. The experiments are described in detail in the attached paper.
 
 
 ## A. Requirements
@@ -56,7 +58,7 @@ Additionally to the console printout a folder Multiple_Seeds\_\<function_name\>\
 3.  These experiments are conducted with Tensorflow using the CPU only and no GPU
 
 
-#### C.2 To run the real data experiment (solar irradiance data interpolation [3]) 
+#### C.2 To run the real data experiment (solar irradiance data interpolation [4]) 
 1. Set the desired parameters in the file simulation_synthetic_functions.py.
 2. Run:
     ```bash
@@ -108,7 +110,7 @@ scipydirect folder in your environment lib. Usually the folder is located under
 'Anaconda<VERSION>/envs/<ENVNAME>/Lib/site-packages/scipydirect' (Windows with Anaconda).
 Make sure the requirements from the requirements.txt are already installed.
 
-**_NOTE:_** Runnung a Bayesian optimization experiment for multiple steps even for one single seed and a single test function can take
+**_NOTE:_** Running a Bayesian optimization experiment for multiple steps even for one single seed and a single test function can take
 multiple hours (GPU supported tensorflow is thus recommended).
 
 ### Configuration
@@ -227,6 +229,27 @@ seed = 3
 loss =
 no_noise = true
 normalize_regularization=true
+
+[HDE]
+epochs = 1024
+K = 5
+kappa = 5
+test_size = 0.2
+random_seed = false
+global_seed = 1
+layers = 5, 256, 1024, 512, 1
+activation = relu
+RSN = false
+l2reg = 1e-8
+softplus_min_var = 1e-6
+s = 0.05
+seed = 3
+loss =
+no_noise = true
+normalize_regularization=true
+dropout_probability_range=0.001, 0.9
+l2reg_range=0.001,1000
+fixed_row_init=true
 ```
 
 Each section defines a certain part of the whole algorithm (indicated in the config file with "[]").
@@ -465,6 +488,24 @@ This section defines the parameters for the Gaussian Process (GP) algorithm
 | std_min | inhereted parameter of the GaussianProcessRegressor from sklearn | 1e-6 | No |
 | kernel_once | can the kernel optimizer optimize the parameters only during the first BO step | false | No |
 
+#### HDE
+This section defines the parameters for the Gaussian Process (GP) algorithm
+
+| parameter        | Explanation | Example  |Can be empty  |
+| ------------- |:-------------:| -----:|-----:|
+| epochs | number of epochs to train the network | 1024 | No |
+| global_seed | seed producing random initialisation of models | 1 | No |
+| random_seed | boolean to use a random global seed | false | No |
+| test_size | fraction of sample points to use as test-set | 0.2 | No |
+| kappa | number of different hyperparameter configuration per model initialization | 20 | No |
+| K | size of the final ensemble | 5 | No |
+| layers | numbers of nodes per layer for the network, as list | 5, 256, 1024, 512, 1 | No |
+| normalize_regularization | should regularization be adjusted according to the data noise assumption | true | No |
+| loss | overwrite with custom loss | mse | Yes |
+| no_noise | should the method be adjusted for the noiseless case: If true loss=mse and each network has only one output (mean prediction), if false loss=nll and each network has two outputs (mean and data noise prediction) | true | No |
+| seed | seed for layer initialization | 3 | No |
+| l2reg | L2-regularization factor | 1e-8 | No |
+| activation | string indicating which activation functions to use | relu | No |
 ##### Kernel
 
 The kernel for the Gaussian Process can be configured individually
@@ -496,4 +537,6 @@ The kernel for the Gaussian Process can be configured individually
 
 [2] Simple and Scalable Predictive UncertaintyEstimation using Deep Ensembles http://papers.nips.cc/paper/7219-simple-and-scalable-predictive-uncertainty-estimation-using-deep-ensembles.pdf
 
-[3] Total solar irradiance during the Holocene https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2009GL040142
+[3] Hyperparameter ensembles for robustness and uncertainty quantification https://proceedings.neurips.cc/paper/2020/file/481fbfa59da2581098e841b7afc122f1-Paper.pdf
+
+[4] Total solar irradiance during the Holocene https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2009GL040142
