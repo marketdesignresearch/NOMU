@@ -538,3 +538,8 @@ The kernel for the Gaussian Process can be configured individually
 [3] Hyperparameter ensembles for robustness and uncertainty quantification https://proceedings.neurips.cc/paper/2020/file/481fbfa59da2581098e841b7afc122f1-Paper.pdf
 
 [4] Total solar irradiance during the Holocene https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2009GL040142
+
+	
+## F. Contact
+
+Maintained by Jakob Weissteiner (weissteiner), Hanna Wutte (HannaSW), Jakob Heiss (JakobHeiss) and Marius Högger (mhoegger).
