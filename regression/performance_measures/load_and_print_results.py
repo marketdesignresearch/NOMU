@@ -55,7 +55,9 @@ def load_and_print_results(loadpath: str, seeds: list) -> NoReturn:
     pd_auc = pd.DataFrame.from_dict(results_auc)
     pd_auc = pd_auc.T.sort_index()
     print("\n\n{}:".format(key))
-    print("Area under the curve (AUC) of ROC-like curve: coverage probability vs. mean width (Measure 1).")
+    print(
+        "Area under the curve (AUC) of ROC-like curve: coverage probability vs. mean width (Measure 1)."
+    )
     print("")
     print(
         "#---------------------------------------------------------------------------------"
@@ -95,7 +97,9 @@ def load_and_print_results(loadpath: str, seeds: list) -> NoReturn:
     pd_auc_log = pd.DataFrame.from_dict(results_auc_log)
     pd_auc_log = pd_auc_log.T.sort_index()
     print("\n\n{} (optional):".format(key))
-    print("Area under the curve of ROC-like curve: coverage probability vs. mean LOG(width)")
+    print(
+        "Area under the curve of ROC-like curve: coverage probability vs. mean LOG(width)"
+    )
     print("(Slight adaption of AUC where LOG of width is used instead of width.)")
     print(
         "#---------------------------------------------------------------------------------"

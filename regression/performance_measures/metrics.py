@@ -27,6 +27,7 @@ def metric_curves(
     cp_max: float = 1,
     log_shift: Optional[float] = 0.001,
     captured_flag: bool = True,
+    add_nlpd_constant: bool = False,
 ) -> np.array:
 
     """Returns list of metrics for a range of c-values.
@@ -66,7 +67,8 @@ def metric_curves(
     log_shift :
         scalar shift for MlogW: the metric will give mean(log(x+log_shift))
         for an array x of widths.
-
+    add_nlpd_constant:
+        bool, should constant of Gaussian NLL be added?
 
     Return
     ----------
@@ -89,12 +91,19 @@ def metric_curves(
         else:
             custom_c_grid = np.arange(0, 1, resolution)
 
-    # probabilistic
-    # bounds:       [lower_sample_quantile[c], upper_sample_quantile[c]]
-    # uncertainty:  upper_sample_quantile[c] - sample_quantile[0.5]
-    if variant == "sample":
-        for c in custom_c_grid:
-            if cp < cp_max:
+    for c in custom_c_grid:
+        if variant == "standard":
+            nlpd = NLPD(m, sig, y_val, c, add_constant=add_nlpd_constant)
+        else:
+            # no NLPD for variant = sample or normal currently
+            nlpd = None
+        NLL_list.append(nlpd)
+
+        if cp < cp_max:
+            # probabilistic
+            # bounds:       [lower_sample_quantile[c], upper_sample_quantile[c]]
+            # uncertainty:  upper_sample_quantile[c] - sample_quantile[0.5]
+            if variant == "sample":
                 lower = np.quantile(
                     predictions,
                     q=(1 - np.round(c, 10)) / 2,
@@ -107,82 +116,41 @@ def metric_curves(
                     axis=0,
                     interpolation=interpolation,
                 )
-                cp = CP(y_val, lower, upper)
-                if captured_flag:
-                    mw = MW(lower, upper, y=y_val)
-                    mlw = MW(lower, upper, y=y_val, log=True, log_shift=log_shift)
-                else:
-                    mw = MW(lower, upper)
-                    mlw = MW(lower, upper, log=True, log_shift=log_shift)
-
-                nlpd = NLPD(m, sig, y_val, c)
-                CP_list.append(cp)
-                MW_list.append(mw)
-                MlogW_list.append(mlw)
-                NLL_list.append(nlpd)
-                c_list.append(c)
-            else:
-                break
-
-    # probabilistic
-    # bounds:       [mu +/- normal_quantile[c]*std]
-    # uncertainty:  normal_quantile[c]*std
-    elif variant == "normal":
-        for c in custom_c_grid:
-            if cp < cp_max:
+            # probabilistic
+            # bounds:       [mu +/- normal_quantile[c]*std]
+            # uncertainty:  normal_quantile[c]*std
+            elif variant == "normal":
                 lower = m + norm.ppf((1 - c) / 2) * sig
                 upper = m + norm.ppf((1 + c) / 2) * sig
-                cp = CP(y_val, lower, upper)
-                if captured_flag:
-                    mw = MW(lower, upper, y=y_val)
-                    mlw = MW(lower, upper, y=y_val, log=True, log_shift=log_shift)
-                else:
-                    mw = MW(lower, upper)
-                    mlw = MW(lower, upper, log=True, log_shift=log_shift)
-
-                nlpd = NLPD(m, sig, y_val, c)
-                CP_list.append(cp)
-                MW_list.append(mw)
-                MlogW_list.append(mlw)
-                NLL_list.append(nlpd)
-                c_list.append(c)
-            else:
-                break
-
-    # non- probabilistic
-    # bounds:       [mu +/- c*std]
-    # uncertainty:  c*std
-    elif variant == "standard":
-        for c in custom_c_grid:
-            if cp < cp_max:
+            # non- probabilistic
+            # bounds:       [mu +/- c*std]
+            # uncertainty:  c*std
+            elif variant == "standard":
                 lower = m - c * sig
                 upper = m + c * sig
-                cp = CP(y_val, lower, upper)
 
-                if captured_flag:
-                    mw = MW(lower, upper, y=y_val)
-                    mlw = MW(lower, upper, y=y_val, log=True, log_shift=log_shift)
-
-                else:
-                    mw = MW(lower, upper)
-                    mlw = MW(lower, upper, log=True, log_shift=log_shift)
-
-                nlpd = NLPD(m, sig, y_val, c)
-                CP_list.append(cp)
-                MW_list.append(mw)
-                MlogW_list.append(mlw)
-                NLL_list.append(nlpd)
-                c_list.append(c)
+            cp = CP(y_val, lower, upper)
+            if captured_flag:
+                mw = MW(lower, upper, y=y_val)
+                mlw = MW(lower, upper, y=y_val, log=True, log_shift=log_shift)
             else:
-                break
+                mw = MW(lower, upper)
+                mlw = MW(lower, upper, log=True, log_shift=log_shift)
 
-    ret = np.array((CP_list, MW_list, MlogW_list, NLL_list, c_list))
-    return ret.T
+            CP_list.append(cp)
+            MW_list.append(mw)
+            MlogW_list.append(mlw)
+            c_list.append(c)
+
+    ret = np.array((CP_list, MW_list, MlogW_list, NLL_list[: len(c_list)], c_list))
+    ret_nlpd = np.asarray(NLL_list)
+    return ret.T, ret_nlpd.T
 
 
 # %%
 def update_metrics_list(
     ROC_list: List[np.array],
+    NLPD_list: List[np.array],
     label_list: List[str],
     color_list: List[str],
     label: str,
@@ -199,6 +167,7 @@ def update_metrics_list(
     cp_max: float = 1,
     captured_flag: bool = True,
     log_shift: Optional[float] = 0.001,
+    add_nlpd_constant: bool = False,
 ) -> Tuple[List[List[np.array]], List[str], List[str]]:
 
     """Creates Roc plot of all considered models.
@@ -209,6 +178,10 @@ def update_metrics_list(
         List of return values of custom_ROC (i.e., np.array of shape
         (#of c values required for full coverage, 3) with
         columns: |coverage probability|mean width|mean log width|c-value|).
+    NLPD_list :
+        List of nlpd values on a custom c_grid (i.e., np.array of shape
+        (#of c values in c_grid, ) with
+        nll values).
     label_list :
         List of labels for each model for plot title and legend.
     color_list :
@@ -246,15 +219,17 @@ def update_metrics_list(
     log_shift :
         scalar shift for MlogW: the metric will give mean(log(x+log_shift))
         for an array x of widths.
+    add_nlpd_constant:
+        bool, should constant of Gaussian NLL be added?
     Returns
     ----------
-    (ROC_list, label_list, color_list):
-        Tuple containing extended lists of ROC-arrays, labels and colors.
+    (ROC_list, NLPD_list, label_list, color_list):
+        Tuple containing extended lists of ROC-arrays, NLPD-arrays, labels and colors.
     """
 
     # non-probabilistic ROC: bounds are mu+-c*std for grid of c values
     if variant in ["standard", "normal", "sample"]:
-        ROC = metric_curves(
+        ROC, NLPD = metric_curves(
             m=m,
             sig=sig,
             y_val=y_val,
@@ -267,14 +242,16 @@ def update_metrics_list(
             log_shift=log_shift,
             resolution=resolution,
             captured_flag=captured_flag,
+            add_nlpd_constant=add_nlpd_constant,
         )
     else:
         raise NotImplementedError("Variant {} is not implmented yet".format(variant))
 
     ROC_list.append(ROC)
+    NLPD_list.append(NLPD)
     label_list.append(label)
     color_list.append(color)
-    return (ROC_list, label_list, color_list)
+    return (ROC_list, NLPD_list, label_list, color_list)
 
 
 # %%

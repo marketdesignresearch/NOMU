@@ -9,6 +9,7 @@ This file stores helper functions.
 import re
 from typing import Dict, Tuple
 from datetime import timedelta
+import numpy as np
 
 # %%
 def pretty_print_dict(D: Dict[str, any], printing: bool = True) -> str:
@@ -110,3 +111,16 @@ def key_to_int(key: str) -> int:
 
     int_of_key = int(re.findall(r"\d+", key)[0])
     return int_of_key
+
+
+# %%
+def custom_cgrid(grid_min, grid_max, steps, max_power_of_two):
+    """Creates c-grid"""
+    factor = (grid_max / grid_min) ** (1 / steps)
+
+    grid = np.array(
+        [0]
+        + [grid_min * factor ** i for i in range(steps)]
+        + [grid_max * 2 ** k for k in range(1, max_power_of_two)]
+    )
+    return grid

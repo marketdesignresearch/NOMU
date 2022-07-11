@@ -21,6 +21,7 @@ from typing import NoReturn, Union, List, Dict, Tuple, Optional
 import matplotlib.pyplot as plt
 from collections import Counter
 from copy import deepcopy
+from sklearn.preprocessing import StandardScaler
 
 # Own Modules
 from algorithms.util import pretty_print_dict, timediff_d_h_m_s, update_seed
@@ -33,7 +34,6 @@ from algorithms.custom_activation_functions import softplus_wrapper
 
 class HyperDeepEnsemble:
 
-    # TODO: update description
     """
     Hyper Deep Ensembles (DE).
 
@@ -47,6 +47,10 @@ class HyperDeepEnsemble:
         Parametersdict for each model.
     histories : OrderedDict
         Training histories for each model.
+    scaler_input: StandardScaler
+        Scaling input to mean=0, std=1
+    scaler_target: StandardScaler
+        Scaling target to mean=0, std=1
 
     Methods
     -------
@@ -70,6 +74,7 @@ class HyperDeepEnsemble:
         Saves all models and relevant informations.
     load_models()
         Loads models specified by model_numbers.
+
     """
 
     def __init__(self) -> NoReturn:
@@ -84,6 +89,8 @@ class HyperDeepEnsemble:
         self.model_keys = []
         self.variable_hyperparameters_values = OrderedDict()
         self.current_seed_counter = OrderedDict()
+        self.scaler_input = StandardScaler()
+        self.scaler_target = StandardScaler()
 
     def set_parameters(
         self,
@@ -110,6 +117,7 @@ class HyperDeepEnsemble:
         optimizer_beta_2: Optional[List[float]] = None,
         optimizer_epsilon: Optional[List[float]] = None,
         optimizer_amsgrad: Optional[List[bool]] = None,
+        normalize_data: Optional[Union[bool, List[bool]]] = False,
     ) -> NoReturn:
 
         # TODO: update description
@@ -154,6 +162,8 @@ class HyperDeepEnsemble:
             Adam parameter
         optimizer_amsgrad : bool
             Adam parameter
+        normalize_data : bool
+                If true, data is normalized s.t. mean=0, std=1
 
         """
 
@@ -208,6 +218,7 @@ class HyperDeepEnsemble:
             "epsilon",
             "amsgrad",
             "clipnorm",
+            "normalize_data",
         ]
         if not isinstance(layers, list):
             layers = [layers]
@@ -256,6 +267,8 @@ class HyperDeepEnsemble:
             optimizer_amsgrad = [optimizer_amsgrad]
         if not isinstance(optimizer_clipnorm, list):
             optimizer_clipnorm = [optimizer_clipnorm]
+        if not isinstance(normalize_data, list):
+            normalize_data = [normalize_data]
         parameters_values = list(
             product(
                 layers,
@@ -282,6 +295,7 @@ class HyperDeepEnsemble:
                 optimizer_epsilon,
                 optimizer_amsgrad,
                 optimizer_clipnorm,
+                normalize_data,
             )
         )
         parameters = [OrderedDict(zip(parameter_keys, x)) for x in parameters_values]
@@ -313,6 +327,16 @@ class HyperDeepEnsemble:
         # TODO: add decsription
 
         for ensemble_key in self.model_keys:
+
+            if self.parameters[ensemble_key]["normalize_data"]:
+                print("Fit function: Fit & Transform x-train...")
+                self.scaler_input.fit(x)
+                x = self.scaler_input.transform(x)
+                print("Fit function: Fit & Transform y-train...")
+                y = np.array(y).reshape(-1, 1)
+                self.scaler_target.fit(y)
+                y = self.scaler_target.transform(y)
+
             print()
             print(f"BUILD HYPER DEEP ENSEMBLE: {ensemble_key}")
             print(
@@ -500,6 +524,13 @@ class HyperDeepEnsemble:
         predictions = OrderedDict()
         for ensemble_key, ensemble in self.models.items():
             p = self.parameters[ensemble_key]
+
+            if p["normalize_data"]:
+                print("Prediction function: Transform x-test...")
+                if len(x.shape) == 1:  # if 1d, format to 2d array for transformation
+                    x = x.reshape(-1, 1)
+                x = self.scaler_input.transform(x)
+
             if verbose > 0:
                 print(self.models_counts[ensemble_key])
             total_number_of_models = sum(self.models_counts[ensemble_key].values())
@@ -556,6 +587,12 @@ class HyperDeepEnsemble:
                 raise NotImplementedError(
                     "Loss {} not implemented yet.".format(p["loss"])
                 )
+
+            if p["normalize_data"]:
+                print("Prediction function: Inverse-transform y(x-test)...")
+                mu_pred = self.scaler_target.inverse_transform(mu_pred)
+                std_pred = std_pred * self.scaler_target.scale_
+
             mu_pred = np.asarray(mu_pred, dtype=np.float32)
             std_pred = np.asarray(std_pred, dtype=np.float32)
             predictions[ensemble_key] = [mu_pred, std_pred]

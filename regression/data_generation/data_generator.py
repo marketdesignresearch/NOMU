@@ -7,15 +7,22 @@ This file contains data generators for augmented data.
 
 # Libs
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from scipy import spatial
-from numpy.random import dirichlet
-from typing import Tuple, Optional, Callable
+from sklearn.model_selection import train_test_split
+from typing import Callable, Optional, Tuple
+
 
 # Own Modules
+from data_generation.data_gen import (
+    data_gen,
+    x_data_gen_Uniform_f,
+)
 from data_generation.function_library import function_library
-from data_generation.import_data import data_gen_irradiance
+from data_generation.import_data import (
+    data_gen_irradiance,
+    data_gen_uci,
+    data_gen_uci_gap,
+    data_gen_uci_gap_combo,
+)
 
 # %% Create augmented data
 
@@ -33,23 +40,26 @@ def generate_augmented_data(
     seed: int = 3 + 2,
     plot: bool = True,
     noise_on_validation: int = 1,
-    figsize: Tuple[float, float] = (16, 9),
-    convex_hull_uniform: bool = False,
-    convex_hull_biased: bool = False,
-    batch_size_sampling: int = 1000,
-    eps: float = 0,
+    figsize: Tuple[float, float] = (10, 10),
+    x_data_gen: Callable[
+        [float, float, float], Tuple[np.ndarray, np.ndarray]
+    ] = x_data_gen_Uniform_f(x_min=-1, x_max=1),
     c_aug: float = 10,
     n_aug: int = 2 ** 7,
-    random_aug: bool = True,
-    x_min_aug: float = -1 - 0.1,
-    x_max_aug: float = 1 + 0.1,
+    aug_in_training_range: bool = False,
+    aug_range_epsilon: float = 0.05,
+    random_aug: bool = False,
     data: Optional[str] = None,
-    df: Optional = None,
+    df: Optional[np.ndarray] = None,
     train_size: int = 1,
     start: Optional[float] = None,
     stop: Optional[float] = None,
     n_strips: Optional[int] = None,
     lenstrips: Optional[int] = None,
+    val_size: Optional[bool] = 0,
+    val_seed: int = 3 + 2,
+    test_seed: int = 3 + 2,
+    gap_dim: Optional[int] = -1,
 ) -> Tuple[np.array, ...]:
 
     """Returns np.arrays of training and validation data (non-augmented,
@@ -88,25 +98,19 @@ def generate_augmented_data(
                 as training data. If noise_on_validation==0, validation data are noiseless.
             figsize:
                 Tuple giving range of figure.
-            convex_hull_uniform:
-                Boolean, should the validation points be sampled uniformly from the convex hull of the training points.
-            convex_hull_biased:
-                Boolean, should the validation points be sampled from a convex combination from the convex hull of the training points.
-            batch_size_sampling:
-                Batch size for accept/rejection method in convex_hull sampling
-            eps:
-                Specifies, tolerance when a validation point is accepted to lie in the convex hull.
+            x_data_gen:
+                callable, function for generating augmented data points.
             c_aug:
                 Value for target of augmented datapoints. Maximal training
                 target will be added to it for real data sets.
             n_aug:
                 Number of augmented data points.
+            aug_in_training_range:
+                Boolean; if True, augmented data is sampled in trainings data range +-aug_range_epsilon%
+            aug_range_epsilon:
+                Percentage by which initial augmented data range is expanded (initial augmented data range is either training data range (if aug_in_training_range==True) or [-1, 1] (else))
             random_aug:
                 If True, augmented features are sampled randomly in the domain.
-            x_min_aug:
-                Minimal value for generating augmented features.
-            x_max_aug:
-                Maximal value for generating augmented features.
             data:
                 Name of real data-set.
             df:
@@ -126,6 +130,14 @@ def generate_augmented_data(
             lenstrips:
                 Length of training data strips for splitting features into training and validation points.
                 (real-world interpolation)
+            val_size:
+                float, proportion of training data to be used as validation data. Only relevant for UCI data sets.
+            test_seed:
+                Seed for generating random test / validation&training split. Only relevant for UCI data sets.
+            val_seed:
+                Seed for generating random validation/training split. Only relevant for UCI data sets.
+            gap_dim:
+                Integer, defining the gap dimension. Only relevant for UCI-Gap experiments on UCI data sets.
             Return
             ----------
             8-Tuple of np.arrays of
@@ -149,32 +161,84 @@ def generate_augmented_data(
             seed=seed,
         )
         c_aug += np.max(y_train)
+    elif data == "UCI-Gap":
+        x_train, y_train, x_test, y_test, n_train, n_test = data_gen_uci_gap(
+            df, gap_dim
+        )
+
+    elif data == "UCI":
+        x_train, y_train, x_test, y_test, n_train, n_test = data_gen_uci(
+            df, seed=test_seed
+        )
+
+    elif data == "UCI-Combo":
+        (
+            x_train,
+            y_train,
+            x_test,
+            y_test,
+            n_train,
+            n_test,
+        ) = data_gen_uci_gap_combo(df, seed=test_seed)
+
     else:
         x_train, y_train, x_val, y_val = data_gen(
             din=din,
             dout=dout,
             n_train=n_train,
             n_val=n_val,
-            x_min=x_min,
-            x_max=x_max,
             f_true=f_true,
-            random=random,
             noise_scale=noise_scale,
             seed=seed,
             noise_on_validation=noise_on_validation,
             figsize=figsize,
             plot=plot,
-            convex_hull_uniform=convex_hull_uniform,
-            convex_hull_biased=convex_hull_biased,
-            batch_size_sampling=batch_size_sampling,
-            eps=eps,
+            x_data_gen=x_data_gen,
         )
+    if not (data is None) and "UCI" in data:
+        # Do train/val split
+        try:
+            x_train, x_val, y_train, y_val = train_test_split(
+                x_train, y_train, test_size=val_size, random_state=val_seed
+            )
+            n_val = y_val.shape[0]
+        except ValueError:
+            print(
+                "\nAttention: val_size is not a float in the (0,1) range or a feasible integer. Treated as no validation split.\n"
+            )
+            x_val = None
+            y_val = None
+            n_val = 0
+
+        n_train = y_train.shape[0]
+        c_aug += np.max(y_train)
+        print(
+            f"Train-Validation split:\n number of training data is {n_train}\n number of validation data is {n_val}"
+        )
+
+    # find range to sample augmented data from
+    if aug_in_training_range:
+        x_min_aug = x_train.min(axis=0)
+        x_max_aug = x_train.max(axis=0)
+    else:
+        x_min_aug = -1
+        x_max_aug = 1
+    margin = (x_max_aug - x_min_aug) * aug_range_epsilon
+    x_min_aug -= margin
+    x_max_aug += margin
+
     # augmented random data
     if random_aug:
         x_aug = np.random.uniform(low=x_min_aug, high=x_max_aug, size=(n_aug, din))
     # augmented equidistant data
     else:
-        resolution = int(n_aug ** (1 / din))
+        resolution = n_aug ** (1 / din)
+        if resolution % 1 != 0:
+            raise ValueError(
+                f"n_aug:{n_aug} is not given as x^{din} for some real number x!"
+            )
+        else:
+            resolution = int(resolution)
         x_grid = np.meshgrid(
             *[np.linspace(x_min_aug, x_max_aug, resolution)] * din
         )  # list of length din of arrays of shape (resolution,..., resolution) din times
@@ -186,163 +250,43 @@ def generate_augmented_data(
 
     # data prep (concatenate training and random data & add flag)
     x_train = np.concatenate((x_train, np.zeros((n_train, 1))), axis=-1)
-    x_aug = np.concatenate((x_aug, np.ones((x_aug.shape[0], 1))), axis=-1)
+    x_aug = np.concatenate((x_aug, np.ones((n_aug, 1))), axis=-1)
+    ###Q: Why add extra dim?
+
     x = np.concatenate((x_train, x_aug))
-    y = np.concatenate((np.reshape(y_train, (n_train, 1)), y_aug))
-    print("input X:\n", pd.DataFrame(x))
-    print("\ntarget Y:\n", pd.DataFrame(y))
+
+    # y = np.concatenate((np.reshape(y_train, (n_train,1)), y_aug))
+    y = np.concatenate((np.reshape(np.array(y_train), (n_train, 1)), y_aug))
+
+    # print('input X:\n',pd.DataFrame(x))
+    # print('\ntarget Y:\n',pd.DataFrame(y))
+    if data == "UCI" or data == "UCI-Gap" or data == "UCI-Combo":
+        return (
+            x,
+            y,
+            x_train,
+            y_train,
+            x_aug,
+            y_aug,
+            x_val,
+            y_val,
+            x_test,
+            y_test,
+            n_train,
+            n_val,
+            n_test,
+        )
     if data == "irradiance":
-        return (x, y, x_train, y_train, x_aug, y_aug, x_val, y_val, n_train, n_val)
+        return (
+            x,
+            y,
+            x_train,
+            y_train,
+            x_aug,
+            y_aug,
+            x_val,
+            y_val,
+            n_train,
+            n_val,
+        )
     return (x, y, x_train, y_train, x_aug, y_aug, x_val, y_val)
-
-
-# %% FUNCTION FOR DATA GENERATION
-def data_gen(
-    din,
-    dout,
-    n_train,
-    n_val,
-    x_min,
-    x_max,
-    f_true,
-    random,
-    noise_scale,
-    seed,
-    noise_on_validation,
-    figsize=(10, 10),
-    plot=True,
-    convex_hull_uniform=False,
-    convex_hull_biased=False,
-    batch_size_sampling=1000,
-    eps=0,
-):
-
-    # if xmin or xmax not a list, create one
-    if x_min is not list:
-        x_min = [x_min for _ in range(din)]
-    if x_max is not list:
-        x_max = [x_max for _ in range(din)]
-    if len(x_min) != din or len(x_max) != din:
-        print("Make sure dimensions are consistent")
-        return 0, 0, 0, 0
-    np.random.seed(seed=seed)
-    # INPUTS
-    # RANDOM
-    if random:
-        x_train = np.random.rand(n_train, din)
-        # UNIFORMLY FROM CONVEX HULL
-        if convex_hull_uniform:
-            if convex_hull_biased:
-                print(
-                    "Ignoring convex_hull_biased arg since convex_hull_uniform was also set to True"
-                )
-            outline = spatial.ConvexHull(x_train)
-            i = 0
-            x_val = None
-            while i < n_val:
-                componentwise_max = np.max(x_train, axis=0)
-                componentwise_min = np.min(x_train, axis=0)
-                # x_val_tmp = np.random.rand(batch_size_sampling,din)
-                x_val_tmp = np.random.uniform(
-                    low=componentwise_min,
-                    high=componentwise_max,
-                    size=(batch_size_sampling, din),
-                )
-                outside = (
-                    outline.equations @ np.c_[x_val_tmp, np.ones(batch_size_sampling)].T
-                    > eps
-                ).any(0)
-                if x_val is None:
-                    x_val = x_val_tmp[~outside, :]
-                else:
-                    x_val = np.concatenate([x_val, x_val_tmp[~outside, :]], axis=0)
-                    i = x_val.shape[0]
-                    print("Sampled points", i, "/", n_val)
-            x_val = x_val[
-                :n_val,
-            ]  # exactly n_val points
-            print("Final validation points", x_val.shape[0])
-        # BIASED FROM CONVEX HULL VIA CONVEX COMBINATION
-        elif convex_hull_biased:
-            outline = spatial.ConvexHull(x_train)
-            u_i = dirichlet([1] * x_train.shape[0], size=n_val)
-            x_val = u_i @ x_train
-            # Here
-        # UNIFORMLY
-        else:
-            x_val = np.random.rand(n_val, din)
-        # SCALING
-        for i, x in enumerate(x_min):
-            x_train[:, i] = x_train[:, i] * (x_max[i] - x) + x
-            x_val[:, i] = x_val[:, i] * (x_max[i] - x) + x
-    # DETERMINISTIC GRID
-    else:
-        if din == 1:
-            x_train = np.linspace(x_min[0], x_max[0], (n_train)).reshape(-1, 1)
-        elif din == 2:
-            x = np.linspace(x_min[0], x_max[0], int(np.sqrt(n_train)))
-            y = np.linspace(x_min[0], x_max[0], int(np.sqrt(n_train)))
-            X, Y = np.meshgrid(x, y)
-            x_train = np.vstack([Y.reshape(-1), X.reshape(-1)]).T
-        x_val = np.random.rand(n_val, din)
-        for i, x in enumerate(x_min):  # scale the columns
-            x_val[:, i] = x_val[:, i] * (x_max[i] - x) + x
-    # TARGETS
-    if dout == 1:
-        y_train = 1.0 * (
-            np.random.normal(scale=0.1, size=n_train) * noise_scale + f_true(x_train)
-        )
-        y_val = 1.0 * (
-            np.random.normal(scale=0.1, size=n_val) * noise_scale * noise_on_validation
-            + f_true(x_val)
-        )
-    else:
-        y_train = 1.0 * (
-            np.random.normal(scale=0.1, size=(n_train, dout)) * noise_scale
-            + f_true(x_train)
-        )
-        y_val = 1.0 * (
-            np.random.normal(scale=0.1, size=(n_val, dout))
-            * noise_scale
-            * noise_on_validation
-            + f_true(x_val)
-        )
-    print(
-        "Now the validation data also has noise! If you want to remove it change the argument noise_on_validation to 0"
-    )
-    if plot:
-        if din == 1:
-            plt.figure(figsize=figsize)
-            plt.plot(x_train, y_train, "ko")
-            plt.plot(x_val, y_val, "g.")
-            plt.show()
-        elif din == 2 and dout == 1:
-            resolution = (int(n_train), int(n_train))
-            xx, yy = np.meshgrid(
-                np.linspace(x_min[0] * 1.1, x_max[0] * 1.1, resolution[0]),
-                np.linspace(x_min[1] * 1.1, x_max[1] * 1.1, resolution[1]),
-            )
-            function = np.copy(xx)
-            for i in range(resolution[0]):
-                for j in range(resolution[1]):
-                    function[i, j] = f_true(np.array([[xx[i, j], yy[i, j]]]))
-            plt.contourf(xx, yy, function, levels=20)
-            plt.colorbar()
-            plt.scatter(
-                x_val[:, 0], x_val[:, 1], marker="o", edgecolor="w", facecolors="none"
-            )  # validation points
-            plt.scatter(
-                x_train[:, 0],
-                x_train[:, 1],
-                marker="x",
-                edgecolor="k",
-                facecolors="k",
-                linewidths=100,
-                zorder=10,
-                s=100,
-            )  # training points
-            if convex_hull_uniform or convex_hull_biased:
-                closed = np.tile(outline.points[outline.vertices], (2, 1))
-                closed = closed[: len(closed) // 2 + 1]
-                plt.plot(*closed.T, "b")
-    return x_train, y_train, x_val, y_val

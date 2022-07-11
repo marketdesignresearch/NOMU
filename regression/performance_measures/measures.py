@@ -93,6 +93,7 @@ def NLPD(
     sig: np.array,
     y_val: np.array,
     c: float,
+    add_constant: bool = False,
 ):
     """Returns average negative log predictive density (captured) for given UB and LB.
 
@@ -106,6 +107,8 @@ def NLPD(
         np.array of ouptput (target) values of validation data.
     c:
         factor for standard deviation in NLL.
+    add_constant:
+        bool, should constant of Gaussian NLL be added?
     Return
     ----------
     Average negative log predictive density (captured) (ignoring constants)(np.float).
@@ -120,5 +123,9 @@ def NLPD(
         return -np.inf
 
     nll = np.log(c * sig) + ((y_val - m) ** 2) / (2 * (c * sig) ** 2)
+
+    # NEW
+    if add_constant:
+        nll += 0.5 * np.log(2 * np.pi)
 
     return np.mean(nll)

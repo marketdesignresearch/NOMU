@@ -4,7 +4,7 @@
 This file is used for the regression experiments on synthetic test functions.
 
 """
-
+#%%
 # Libs
 import os
 import random
@@ -30,8 +30,9 @@ from algorithms.model_classes.deep_ensemble import DeepEnsemble
 from algorithms.model_classes.hyper_deep_ensemble import HyperDeepEnsemble
 from plot_functions.plot_functions import plot_predictions, plot_predictions_2d
 from data_generation.data_generator import generate_augmented_data
+from data_generation.data_gen import x_data_gen_Uniform_f
 from data_generation.function_library import function_library
-from algorithms.util import timediff_d_h_m_s
+from algorithms.util import timediff_d_h_m_s, custom_cgrid
 from performance_measures.load_and_print_results import load_and_print_results
 from performance_measures.scores import gaussian_nll_score, mse_score
 
@@ -54,6 +55,18 @@ n_aug = 2 ** 7  # number of augmented points.
 
 # For equidistant sampling: n_train, n_aug should be given in powers of din
 # (i.e., 2**(x*din) datapoints --> 2**x resolution in each dimension)
+
+
+n_val = 100  # number of test points.
+
+noise_scale = 0
+random_locations = True
+normalize_data = False
+aug_in_training_range = False
+aug_range_epsilon = 0.05
+
+# Select input data generator:
+x_data_gen = x_data_gen_Uniform_f(x_min=-1, x_max=1)
 
 
 # (iii) NOMU
@@ -234,23 +247,21 @@ bounds_variant_DE = "standard"
 bounds_variant_HDE = "standard"
 
 # (3a) parameters for ROC-like curves
-
 linethreshy_ROC = 1
-# linear grid
 c_max_ROC = None
 resolution_ROC = None
-# custom grid
+# custom c-grid
 grid_min = 1e-3
 grid_max = 1e3
 steps = int(1e5)
-factor = (grid_max / grid_min) ** (1 / steps)
-custom_c_grid_ROC = np.array(
-    [0]
-    + [grid_min * factor ** i for i in range(steps)]
-    + [grid_max * 2 ** k for k in range(1, 20)]
+max_power_of_two = 20
+custom_c_grid_ROC = custom_cgrid(
+    grid_min=grid_min, grid_max=grid_max, steps=steps, max_power_of_two=max_power_of_two
 )
 cp_max_ROC = 1  # maximum coverage probability as stopping criteria
-captured_flag = False  # if true, calculate mw captured in ROC plot. else, mw.
+captured_flag = False  # if true, calculate mw captured in ROC plot else, mw.
+
+add_nlpd_constant = False  # add constant for nlpd metric?
 
 
 # %% (4) Run Simulation
@@ -293,19 +304,22 @@ for seed in seeds:
         "\nInstance {}/{}: generate data for seed {}".format(instance, len(seeds), seed)
     )
     print("**************************************************************************")
-    x, y, x_train, y_train, x_aug, y_aug, x_val, y_val = generate_augmented_data(
+    (x, y, x_train, y_train, x_aug, y_aug, x_val, y_val,) = generate_augmented_data(
         din=din,
         n_train=n_train,
-        n_val=100,
+        n_val=n_val,
         f_true=f_true,
         random=random_locations,
         noise_scale=noise_scale,
         seed=seed,
         plot=False,
-        batch_size_sampling=2 ** 16,
         n_aug=n_aug,
         random_aug=MCaug,
         noise_on_validation=0,
+        figsize=(10, 10),
+        x_data_gen=x_data_gen,
+        aug_in_training_range=aug_in_training_range,
+        aug_range_epsilon=aug_range_epsilon,
     )
     if not MCaug:
         n_aug = x_aug.shape[0]
@@ -547,7 +561,6 @@ for seed in seeds:
             markersize=8,  # CHOOSE
             transparency=0.5,  # CHOOSE
             linewidth=1,  # CHOOSE
-            # plotaugmented=False, # CHOOSE
             logy_ROC=True,  # CHOOSE
             linethreshy_ROC=linethreshy_ROC,
             c_max_ROC=c_max_ROC,
@@ -555,6 +568,7 @@ for seed in seeds:
             cp_max_ROC=cp_max_ROC,
             resolution_ROC=resolution_ROC,
             show_details_title=False,  # CHOOSE
+            add_nlpd_constant=add_nlpd_constant,
         )
 
     elif din == 2:
@@ -615,6 +629,7 @@ for seed in seeds:
             # 2d new
             colorlimits=[0, 2],  # CHOOSE
             only_uncertainty=True,  # CHOOSE
+            add_nlpd_constant=add_nlpd_constant,
         )
 
     end1 = datetime.now()

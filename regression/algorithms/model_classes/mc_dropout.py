@@ -1,23 +1,27 @@
 # -*- coding: utf-8 -*-
 """
+
 This file contains the model class McDropout
 
 """
-# Libs
-from collections import OrderedDict
-from itertools import product
 import os
-from datetime import datetime
-from tensorflow.keras.optimizers import SGD, Adam
-import numpy as np
-from tensorflow.keras.models import Model, load_model
-from tensorflow.keras.regularizers import l2
-from tensorflow.keras.layers import Input, Dense, Dropout
-from tensorflow.keras.initializers import RandomUniform
 import pickle
 import re
-from typing import NoReturn, Union, List, Dict, Tuple, Optional
+
+# Libs
+from collections import OrderedDict
+from datetime import datetime
+from itertools import product
+from typing import Dict, List, NoReturn, Optional, Tuple, Union
+
 import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.initializers import RandomUniform
+from tensorflow.keras.layers import Dense, Dropout, Input
+from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.optimizers import SGD, Adam
+from tensorflow.keras.regularizers import l2
 
 # Own Modules
 from algorithms.util import pretty_print_dict, timediff_d_h_m_s, update_seed
@@ -40,6 +44,10 @@ class McDropout:
         Parametersdict for each model.
     histories : OrderedDict
         Training histories for each model.
+    scaler_input: StandardScaler
+        Scaling input to mean=0, std=1
+    scaler_target: StandardScaler
+        Scaling target to mean=0, std=1
 
     Methods
     -------
@@ -74,6 +82,8 @@ class McDropout:
         self.models = OrderedDict()
         self.histories = OrderedDict()
         self.model_keys = []
+        self.scaler_input = StandardScaler()
+        self.scaler_target = StandardScaler()
 
     def set_parameters(
         self,
@@ -93,6 +103,7 @@ class McDropout:
         optimizer_beta_2: Optional[List[float]] = None,
         optimizer_epsilon: Optional[List[float]] = None,
         optimizer_amsgrad: Optional[List[bool]] = None,
+        normalize_data: Optional[Union[bool, List[bool]]] = False,
     ) -> NoReturn:
 
         """Sets the attributes of the class McDropout.
@@ -133,6 +144,8 @@ class McDropout:
             Adam parameter
         optimizer_amsgrad : bool
             Adam parameter
+        normalize_data : bool
+                If true, data is normalized s.t. mean=0, std=1
 
         """
 
@@ -181,6 +194,7 @@ class McDropout:
             "epsilon",
             "amsgrad",
             "clipnorm",
+            "normalize_data",
         ]
 
         if not isinstance(layers, list):
@@ -216,6 +230,8 @@ class McDropout:
             optimizer_amsgrad = [optimizer_amsgrad]
         if not isinstance(optimizer_clipnorm, list):
             optimizer_clipnorm = [optimizer_clipnorm]
+        if not isinstance(normalize_data, list):
+            normalize_data = [normalize_data]
 
         parameters_values = list(
             product(
@@ -236,11 +252,14 @@ class McDropout:
                 optimizer_epsilon,
                 optimizer_amsgrad,
                 optimizer_clipnorm,
+                normalize_data,
             )
         )
 
         parameters = [OrderedDict(zip(parameter_keys, x)) for x in parameters_values]
-        self.model_keys = ["MCDO_{}".format(i + 1) for i in range(len(parameters))]
+        self.model_keys = [
+            "MC_Dropout_{}".format(i + 1) for i in range(len(parameters))
+        ]
 
         # Set Attributes
         i = 0
@@ -392,7 +411,9 @@ class McDropout:
                     clipnorm=p["clipnorm"],
                 )
             model.compile(
-                optimizer=optimizer, loss=p["loss"], experimental_run_tf_function=False
+                optimizer=optimizer,
+                loss=p["loss"],
+                experimental_run_tf_function=False,
             )
 
             self.models[key] = model
@@ -434,10 +455,24 @@ class McDropout:
             print(key)
             p = self.parameters[key]
             model = self.models[key]
+
+            if p["normalize_data"]:
+                print("Fit function: Fit & Transform x-train...")
+                self.scaler_input.fit(x)
+                x = self.scaler_input.transform(x)
+                print("Fit function: Fit & Transform y-train...")
+                y = np.array(y).reshape(-1, 1)
+                self.scaler_target.fit(y)
+                y = self.scaler_target.transform(y)
+
             # fit model
             start = datetime.now()
             history = model.fit(
-                x, y, epochs=p["epochs"], batch_size=p["batch_size"], verbose=verbose
+                x,
+                y,
+                epochs=p["epochs"],
+                batch_size=p["batch_size"],
+                verbose=verbose,
             )
             end = datetime.now()
             diff = end - start
@@ -472,19 +507,40 @@ class McDropout:
         predictions:
             A dictionary that stores the predictions for each model,
             e.g., for x = np.array([[x_1],[x_2]]) and sample_size=3 returns
-            {'MCDO_1':[array([[y^1_1],[y^1_2]], dtype=float32),
+            {'MC_Dropout_1':[array([[y^1_1],[y^1_2]], dtype=float32),
                                     array([[y^2_1],[y^2_2]], dtype=float32),
                                     array([[y^3_1],[y^3_2]], dtype=float32)
-             'MCDO_2':...
+             'MC_Dropout_2':...
             }
 
         """
 
         predictions = OrderedDict()
         for key, model in self.models.items():
+
+            try:
+                if self.parameters[key]["normalize_data"]:
+                    # print("Prediction function: Transform x-test...")
+                    if (
+                        len(x.shape) == 1
+                    ):  # if 1d, format to 2d array for transformation
+                        x = x.reshape(-1, 1)
+                    x = self.scaler_input.transform(x)
+            except (KeyError):
+                pass
+
             predictions_list = []
             for i in range(sample_size):
-                predictions_list.append(model.predict(x))
+                prediction = model.predict(x)
+
+                try:
+                    if self.parameters[key]["normalize_data"]:
+                        # print("Prediction function: Inverse-transform y(x-test)...")
+                        prediction = self.scaler_target.inverse_transform(prediction)
+                except (KeyError):
+                    pass
+
+                predictions_list.append(prediction)
             predictions[key] = predictions_list
         return predictions
 
@@ -512,9 +568,9 @@ class McDropout:
         -------
         predictions:
             A dictionary that stores the predictions for each model, e.g., for x = np.array([[x_1],[x_x]])
-            {'MCDO_1':(array([[mean_1],[mean_2]], dtype=float32),
+            {'MC_Dropout_1':(array([[mean_1],[mean_2]], dtype=float32),
                                     array([[std_1],[std_2]], dtype=float32)),
-             'MCDO_2':...
+             'MC_Dropout_2':...
             }
 
         """
@@ -550,7 +606,7 @@ class McDropout:
 
         plt.figure(figsize=(16, 9))
         for key, history in self.histories.items():
-            plt.plot(history["loss"], label="MCDO " + key[-1] + ": loss")
+            plt.plot(history["loss"], label=key + ": loss")
             if history.get("val_loss", None) is not None:
                 plt.plot(history["val_loss"])
         plt.title("Training History", fontsize=20)
@@ -590,7 +646,8 @@ class McDropout:
             model.save(os.path.join(absolutepath, filename) + ".h5")
             # save histories in pickle file
             with open(
-                os.path.join(absolutepath, "DO_{}_hist.pkl".format(model_number)), "wb"
+                os.path.join(absolutepath, "DO_{}_hist.pkl".format(model_number)),
+                "wb",
             ) as f:
                 pickle.dump(self.histories[key], f)
             f.close()
@@ -613,7 +670,10 @@ class McDropout:
         print("\nModels saved in:", absolutepath)
 
     def load_models(
-        self, absolutepath: str, model_numbers: Union[int, List[int]], verbose: int
+        self,
+        absolutepath: str,
+        model_numbers: Union[int, List[int]],
+        verbose: int,
     ) -> NoReturn:
 
         """Loads models, parameters, and histories for specified models via model_numbers
@@ -661,7 +721,7 @@ class McDropout:
         for model_file, parameter_file, hist_file in zip(
             model_files, parameter_files, hist_files
         ):
-            key = "MCDO_{}".format(int(re.findall(r"\d+", model_file)[0]))
+            key = "MC_Dropout_{}".format(int(re.findall(r"\d+", model_file)[0]))
             print(key)
             print("Loading file:", hist_file)
             with open(os.path.join(absolutepath, hist_file), "rb") as f:
@@ -674,6 +734,8 @@ class McDropout:
             print("Loading file:", model_file)
             model = load_model(os.path.join(absolutepath, model_file), compile=False)
             self.models[key] = model
+            self.model_keys.append(key)
+
             if verbose > 0:
                 print("\nSummary:")
                 print(model.summary())

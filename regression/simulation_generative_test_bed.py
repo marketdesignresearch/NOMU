@@ -4,7 +4,7 @@
 This file is used for the regression experiments on the generative testbed 1D-20D functions.
 
 """
-
+# %%
 # Libs
 import os
 from collections import OrderedDict
@@ -677,7 +677,6 @@ for seed in seeds:
             markersize=8,  # CHOOSE
             transparency=0.5,  # CHOOSE
             linewidth=1,  # CHOOSE
-            plotaugmented=False,  # CHOOSE
             logy_ROC=True,  # CHOOSE
             linethreshy_ROC=linethreshy_ROC,
             c_max_ROC=c_max_ROC,
@@ -685,7 +684,6 @@ for seed in seeds:
             cp_max_ROC=cp_max_ROC,
             resolution_ROC=resolution_ROC,
             show_details_title=False,  # CHOOSE
-            plotforpaper=False,  # CHOOSE
             add_nlpd_constant=add_nlpd_constant,
         )
 
@@ -742,7 +740,6 @@ for seed in seeds:
             resolution=50,  # CHOOSE
             markersize=60,  # CHOOSE
             linewidth=1.5,  # CHOOSE
-            plotaugmented=False,  # CHOOSE
             logy_ROC=True,  # CHOOSE
             linethreshy_ROC=linethreshy_ROC,
             c_max_ROC=c_max_ROC,
@@ -754,7 +751,6 @@ for seed in seeds:
             colorlimits=[0, 1],  # CHOOSE
             plot_type="contour",  # CHOOSE
             only_uncertainty=True,  # CHOOSE
-            plotforpaper=False,  # CHOOSE
             add_nlpd_constant=add_nlpd_constant,
         )
 

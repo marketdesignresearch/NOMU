@@ -1,33 +1,35 @@
 # -*- coding: utf-8 -*-
 """
 This file contains the model class NOMU
-
 """
 
 
 # Libs
-from collections import OrderedDict
-from itertools import product
 import os
-from datetime import datetime
-from tensorflow.keras.optimizers import SGD, Adam
-import numpy as np
-from tensorflow.keras.models import Model, load_model
-from tensorflow.keras.regularizers import l2
-from tensorflow.keras.layers import Input, Dense, concatenate, Dropout
-from tensorflow.keras.initializers import RandomUniform
 import pickle
 import re
-from typing import NoReturn, Union, List, Dict, Tuple, Optional
+from collections import OrderedDict
+from datetime import datetime
+from itertools import product
+from typing import Dict, List, NoReturn, Optional, Tuple, Union
 import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.initializers import RandomUniform
+from tensorflow.keras.layers import Dense, Dropout, Input, concatenate
+from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.optimizers import SGD, Adam
+from tensorflow.keras.regularizers import l2
 
 # Own Modules
 from algorithms.util import pretty_print_dict, timediff_d_h_m_s, update_seed
-from algorithms.losses import r_loss_wrapper, squared_loss_wrapper
-from algorithms.DataGenerator import DataGenerator
 from algorithms.callbacks import PredictionHistory, ReturnBestWeights
+from algorithms.DataGenerator import DataGenerator
+from algorithms.losses import r_loss_wrapper, squared_loss_wrapper
+from algorithms.nll_calibration import nll_calibration
+from algorithms.r_transform import r_transform_function
 
-# %% Class for our UB-newtorks
+# %% Class for our NOMU-newtorks
 class NOMU:
 
     """
@@ -45,6 +47,12 @@ class NOMU:
         Tf.tensor for data dependent loss for each model.
     histories : OrderedDict
         Training histories for each model.
+    r_transform_function: OrderedDict
+        R_TRANSFORM instance in case r_transform is learned
+    scaler_input: StandardScaler
+        Scaling input to mean=0, std=1
+    scaler_target: StandardScaler
+        Scaling target to mean=0, std=1
 
     Methods
     -------
@@ -68,6 +76,12 @@ class NOMU:
         Saves all models and relevant informations.
     load_models()
         Loads models specified by model_numbers.
+    set_r_transform()
+        Sets r_transform_function in case it applies
+    set_augmentation_bounds()
+        Sets bounds for augmented data (also for scaled versions if applicable)
+    nll_calibration()
+        Finds minimal NLPD (and corresponding c) over a grid of c_vaules.
     """
 
     def __init__(self) -> NoReturn:
@@ -80,6 +94,15 @@ class NOMU:
         self.flags = OrderedDict()
         self.histories = OrderedDict()
         self.model_keys = []
+        self.r_transform_function = OrderedDict()
+        self.scaler_input = (
+            StandardScaler()
+        )  # Keeping track of normalization in Fit & Predict
+        self.scaler_target = StandardScaler()
+        self.x_min_aug = None  # Augmentation ranges (particularity of NOMU)
+        self.x_max_aug = None  # See Fit func.
+        self.x_min_aug_scaled = None  # Scaled augementation ranges
+        self.x_max_aug_scaled = None  # See Fit func.
 
     def set_parameters(
         self,
@@ -103,7 +126,10 @@ class NOMU:
         dropout_prob: Optional[Union[float, List[float]]] = None,
         RSN: Union[bool, List[bool]] = False,
         stable_aug_loss: Union[bool, List[bool]] = False,
+        stable_loss: Union[int, List[int]] = 0,
         c_sqr_stable_aug_loss: Optional[List[float]] = None,
+        c_negativ_stable: Optional[List[float]] = None,
+        c_huber_stable: Optional[List[float]] = None,
         optimizer_learning_rate: Optional[List[float]] = None,
         optimizer_clipnorm: Optional[List[float]] = None,
         optimizer_momentum: Optional[List[float]] = None,
@@ -112,6 +138,10 @@ class NOMU:
         optimizer_beta_2: Optional[List[float]] = None,
         optimizer_epsilon: Optional[List[float]] = None,
         optimizer_amsgrad: Optional[List[bool]] = None,
+        normalize_data: Optional[Union[bool, List[bool]]] = False,
+        aug_in_training_range: Optional[Union[bool, List[bool]]] = False,
+        aug_range_epsilon: Union[float, List[float]] = 0.05,
+        connected_hidden: Optional[Union[bool, List[bool]]] = False,
     ) -> NoReturn:
 
         """Sets the attributes of the class NOMU.
@@ -162,7 +192,11 @@ class NOMU:
         stable_aug_loss : bool
             Newer Stable loss version
         c_sqr_stable_aug_loss : float
-            Parameter for newer stable loss version
+            Parameter for stable_loss=1
+        c_negativ_stable : float
+            Parameter for stable_loss=2
+        c_huber_stable : float
+            Parameter for stable_loss=2
         optimizer_learning_rate : float
             SGD or Adam parameter
         optimizer_clipnorm : int
@@ -179,8 +213,14 @@ class NOMU:
             Adam parameter
         optimizer_amsgrad : bool
             Adam parameter
-
-
+        normalize_data : bool
+            If true, data is normalized s.t. mean=0, std=1
+        aug_in_training_range:
+            Boolean; if True, augmented data is sampled in trainings data range +-aug_range_epsilon%
+        aug_range_epsilon:
+            Percentage by which initial augmented data range is expanded (initial augmented data range is either training data range (if aug_in_training_range==True) or [-1, 1] (else))
+        connected_hidden
+        connections from the hidden layers of the main architecture to the hidden layers of the side-architecture
         """
 
         # optimizer
@@ -235,7 +275,10 @@ class NOMU:
             "r_max",
             "RSN",
             "stable_aug_loss",
+            "stable_loss",
             "c_sqr_stable_aug_loss",
+            "c_negativ_stable",
+            "c_huber_stable",
             "optimizer",
             "learning_rate",
             "momentum",
@@ -245,6 +288,10 @@ class NOMU:
             "epsilon",
             "amsgrad",
             "clipnorm",
+            "normalize_data",
+            "aug_in_training_range",
+            "aug_range_epsilon",
+            "connected_hidden",
         ]
 
         if not isinstance(layers, list):
@@ -286,8 +333,14 @@ class NOMU:
             RSN = [RSN]
         if not isinstance(stable_aug_loss, list):
             stable_aug_loss = [stable_aug_loss]
+        if not isinstance(stable_loss, list):
+            stable_loss = [stable_loss]
         if not isinstance(c_sqr_stable_aug_loss, list):
             c_sqr_stable_aug_loss = [c_sqr_stable_aug_loss]
+        if not isinstance(c_negativ_stable, list):
+            c_negativ_stable = [c_negativ_stable]
+        if not isinstance(c_huber_stable, list):
+            c_huber_stable = [c_huber_stable]
         if not isinstance(optimizer_name, list):
             optimizer_name = [optimizer_name]
         if not isinstance(optimizer_learning_rate, list):
@@ -306,6 +359,15 @@ class NOMU:
             optimizer_amsgrad = [optimizer_amsgrad]
         if not isinstance(optimizer_clipnorm, list):
             optimizer_clipnorm = [optimizer_clipnorm]
+            optimizer_amsgrad = [optimizer_amsgrad]
+        if not isinstance(normalize_data, list):
+            normalize_data = [normalize_data]
+        if not isinstance(aug_in_training_range, list):
+            aug_in_training_range = [aug_in_training_range]
+        if not isinstance(aug_range_epsilon, list):
+            aug_range_epsilon = [aug_range_epsilon]
+        if not isinstance(connected_hidden, list):
+            connected_hidden = [connected_hidden]
         parameters_values = list(
             product(
                 layers,
@@ -329,7 +391,10 @@ class NOMU:
                 r_max,
                 RSN,
                 stable_aug_loss,
+                stable_loss,
                 c_sqr_stable_aug_loss,
+                c_negativ_stable,
+                c_huber_stable,
                 optimizer_name,
                 optimizer_learning_rate,
                 optimizer_momentum,
@@ -339,19 +404,32 @@ class NOMU:
                 optimizer_epsilon,
                 optimizer_amsgrad,
                 optimizer_clipnorm,
+                normalize_data,
+                aug_in_training_range,
+                aug_range_epsilon,
+                connected_hidden,
             )
         )
 
         parameters = [OrderedDict(zip(parameter_keys, x)) for x in parameters_values]
-        self.model_keys = ["NOMU_{}".format(i + 1) for i in range(len(parameters))]
+        self.model_keys = [
+            "NOMU_Neural_Network_{}".format(i + 1) for i in range(len(parameters))
+        ]
 
         # Set Attributes
+
         i = 0
         for key in self.model_keys:
             self.parameters[key] = parameters[i]
             self.models[key] = None
             self.flags[key] = None
             self.histories[key] = None
+            # set r_transform function
+            self.set_r_transform(
+                r_transform_name=self.parameters[key]["r_transform"],
+                model_key=key,
+            )
+
             i += 1
 
     def initialize_models(
@@ -411,7 +489,7 @@ class NOMU:
                 trainable=not (RSN),
             )(x_input)
             if dropout != 0 and dropout is not None:
-                y = Dropout(dropout)(y, training=False)
+                y = Dropout(dropout)(y)
             # hidden layers
             for i, n in enumerate(layers[2:-1]):
                 y = Dense(
@@ -429,7 +507,7 @@ class NOMU:
                     trainable=not (RSN),
                 )(y)
                 if dropout != 0 and dropout is not None:
-                    y = Dropout(dropout)(y, training=False)
+                    y = Dropout(dropout)(y)
             # output layer
             y_output = Dense(
                 layers[-1],
@@ -538,8 +616,10 @@ class NOMU:
                     c_exp=p["c_exp"],
                     n_train=p["n_train"],
                     n_aug=p["n_aug"],
-                    stable_aug_loss=p["stable_aug_loss"],
+                    stable_loss=p["stable_loss"],
                     c_2=p["c_sqr_stable_aug_loss"],
+                    c_negativ_stable=p["c_negativ_stable"],
+                    c_huber_stable=p["c_huber_stable"],
                 ),
             ]
             # compile model
@@ -562,7 +642,7 @@ class NOMU:
                     momentum=p["momentum"],
                     nesterov=p["nesterov"],
                     name=p["optimizer"],
-                    clipnorm=p["clipnorm"],
+                    clipnorm=None,
                 )
             model.compile(
                 optimizer=optimizer,
@@ -572,13 +652,78 @@ class NOMU:
             self.models[key] = model
         print()
 
+    def augmentation_bounds(
+        self, x: np.array, aug_in_training_range=False, aug_range_epsilon=0.05
+    ) -> List[np.array]:
+
+        """Calculates the bounds of the intervals of the augmented data
+
+        Arguments
+        ----------
+        x :
+            input data (features)
+        aug_in_training_range:
+            Boolean; if True, augmented data is sampled in trainings data range +-aug_range_epsilon%
+        aug_range_epsilon:
+            Percentage by which initial augmented data range is expanded (initial augmented data range is either training data range (if aug_in_training_range==True) or [-1, 1] (else))
+
+
+        """
+        if aug_in_training_range:
+            x_min = x.min(axis=0)
+            x_max = x.max(axis=0)
+        else:
+            x_min = -1
+            x_max = 1
+        diff = x_max - x_min
+        x_min = x_min - aug_range_epsilon * diff
+        x_max = x_max + aug_range_epsilon * diff
+        return (x_min, x_max)
+
+    def set_augmentation_bounds(
+        self,
+        x: np.array,
+        normalize_data=False,
+        aug_in_training_range=False,
+        aug_range_epsilon=0.05,
+    ) -> NoReturn:
+
+        """Sets the bounds of the intervals of the augmented data
+
+        Arguments
+        ----------
+        x :
+            input data (features)
+        normalize_data:
+            boolean if bounds based on normalized data should also be set
+        aug_in_training_range:
+            Boolean; if True, augmented data is sampled in trainings data range +-aug_range_epsilon%
+        aug_range_epsilon:
+            Percentage by which initial augmented data range is expanded (initial augmented data range is either training data range (if aug_in_training_range==True) or [-1, 1] (else))
+
+
+        """
+        self.x_min_aug, self.x_max_aug = self.augmentation_bounds(
+            x,
+            aug_in_training_range=aug_in_training_range,
+            aug_range_epsilon=aug_range_epsilon,
+        )
+
+        if normalize_data:
+            self.scaler_input.fit(x)
+            x = self.scaler_input.transform(x)
+
+            (self.x_min_aug_scaled, self.x_max_aug_scaled,) = self.augmentation_bounds(
+                x,
+                aug_in_training_range=aug_in_training_range,
+                aug_range_epsilon=aug_range_epsilon,
+            )
+
     def fit_models(
         self,
         x: np.array,
         y: np.array,
         verbose: int = 0,
-        x_min_aug: float = -1 - 0.1,
-        x_max_aug: float = 1 + 0.1,
     ) -> NoReturn:
 
         """Fits the neural network architectures to specified data.
@@ -591,11 +736,6 @@ class NOMU:
             output data (targets).
         verbose :
             Level of verbosity.
-        x_min_aug :
-            Min of box bound for augmented data points.
-        x_max_aug :
-            Max of box bound for augmented data points.
-
         """
 
         # fit NOMU models
@@ -603,6 +743,7 @@ class NOMU:
         print(
             "**************************************************************************"
         )
+
         if verbose > 0:
             for key in self.models.keys():
                 print(key)
@@ -615,6 +756,31 @@ class NOMU:
             print(key)
             p = self.parameters[key]
             model = self.models[key]
+
+            x_orig = x[: p["n_train"], :-1]
+            x_aug = x[p["n_train"] :, :-1]
+
+            # Set augmentation bounds
+            self.set_augmentation_bounds(
+                x_orig,
+                normalize_data=p["normalize_data"],
+                aug_in_training_range=p["aug_in_training_range"],
+                aug_range_epsilon=p["aug_range_epsilon"],
+            )
+            x_min_aug = self.x_min_aug
+            x_max_aug = self.x_max_aug
+
+            if p["normalize_data"]:
+                x_aug = self.scaler_input.transform(x_aug)
+                x_orig = self.scaler_input.transform(x_orig)
+                x_hat = np.concatenate((x_orig, x_aug), axis=0)
+                x = np.concatenate((x_hat, x[:, -1].reshape(-1, 1)), axis=1)
+                self.scaler_target.fit(y[: p["n_train"]])
+                y = self.scaler_target.transform(y)
+
+                x_min_aug = self.x_min_aug_scaled
+                x_max_aug = self.x_max_aug_scaled
+
             # set up generator
             generator = DataGenerator(
                 batch_size=p["batch_size"],
@@ -656,10 +822,7 @@ class NOMU:
             self.parameters[key]["actual_epochs"] = len(self.histories[key]["loss"])
         print()
 
-    def predict(
-        self,
-        x: np.array,
-    ) -> Dict[str, List[np.array]]:
+    def predict(self, x: np.array, model_key: str = None) -> Dict[str, List[np.array]]:
 
         """Predicts the output for each model on a input point x.
 
@@ -667,43 +830,65 @@ class NOMU:
         ----------
         x :
             input data (features).
+        model_key:
+            If not None, predictions are only calculated for the given model key.
 
         Returns
         -------
         predictions:
             A dictionary that stores the predictions for each model, e.g., for x = np.array([[x_1],[x_2]])
-            {'NOMU_1':[array([[y_1],[y_2]], dtype=float32),
+            {'NOMU_Neural_Network_1':[array([[y_1],[y_2]], dtype=float32),
                                     array([[r_1],[r_2]], dtype=float32)],
-             'NOMU_2':...
+             'NOMU_Neural_Network_2':...
             }
 
         """
+        if not model_key:
+            iterable = self.model_keys
+        else:
+            iterable = [model_key]
 
         predictions = OrderedDict()
-        for key, model in self.models.items():
-
+        for key in iterable:
+            model = self.models[key]
             r_transform = self.parameters[key]["r_transform"]
-            r_min = self.parameters[key]["r_min"]
-            r_max = self.parameters[key]["r_max"]
 
             xFlag = np.zeros((x.shape[0], 1))
-            prediction = model.predict([x, xFlag])
-            if r_transform == "id":
+
+            try:
+                if self.parameters[key]["normalize_data"]:
+                    x = np.array(x)  # B.c. of warning regarding pd & numpy
+                    if len(x.shape) == 1:
+                        x = x.reshape(-1, 1)
+
+                    x = self.scaler_input.transform(x)
+            except (KeyError):
                 pass
-            elif r_transform == "custom_min_max":
-                prediction[1][prediction[1] < 0] = 0
-                prediction[1] = (1 - np.exp(-(prediction[1] + r_min) / r_max)) * r_max
-            elif r_transform == "relu_cut":
-                a = prediction[1] - r_min
-                a[a < 0] = 0
-                b = prediction[1] - r_max
-                b[b < 0] = 0
-                prediction[1] = r_min + a - b
+
+            prediction = model.predict([x, xFlag])
+
+            if r_transform in ["id", "custom_min_max", "relu_cut"]:
+                prediction[1] = self.r_transform_function[key](prediction[1])
+            elif r_transform[:7] == "learned":
+                prediction[1] = (
+                    self.r_transform_function[key].predict(prediction[1]).reshape(-1, 1)
+                )
+
             else:
                 raise NotImplementedError(
                     "r_transform {} not implemented.".format(r_transform)
                 )
+
+            try:
+                if self.parameters[key]["normalize_data"]:
+                    prediction = np.array(prediction)
+                    prediction[0] = self.scaler_target.inverse_transform(prediction[0])
+                    prediction[1] = prediction[1] * self.scaler_target.scale_
+            except (KeyError):
+                pass
+
             predictions[key] = prediction
+
         return predictions
 
     def evaluate(
@@ -725,10 +910,10 @@ class NOMU:
         -------
         evaluations:
             A dictionary that stores the loss metrics for each model, e.g., for x = np.array([[x_1],[x_2]])
-            {'NOMU_1':[array([loss], dtype=float32),
+            {'NOMU_Neural_Network_1':[array([loss], dtype=float32),
                                     array([r_loss], dtype=float32),
                                     array([y_loss], dtype=float32)],
-             'NOMU_2':...
+             'NOMU_Neural_Network_2':...
             }
 
         """
@@ -739,8 +924,7 @@ class NOMU:
         return evaluations
 
     def calculate_mean_std(
-        self,
-        x: np.array,
+        self, x: np.array, model_key: str = None
     ) -> Dict[str, Tuple[np.array, np.array]]:
 
         """Calculates estimates of the model prediction and uncertainty for each model on a input point x,
@@ -758,22 +942,27 @@ class NOMU:
             Minimum uncertainty (=r) for numerical stability. If not specified self.r_min is used.
         r_max :
             Asymptotic maximum prior uncertainty (=r).  If not specified self.r_max is used.
+        model_key:
+            If not None, mean and std estimates are only calculated for the given model_key.
 
         Returns
         -------
         predictions:
             A dictionary that stores the predictions for each model, e.g., for x = np.array([[x_1],[x_x]])
-            {'NOMU_1':(array([[y_1],[y_2]], dtype=float32),
+            {'NOMU_Neural_Network_1':(array([[y_1],[y_2]], dtype=float32),
                                     array([[r_1],[r_2]], dtype=float32)),
-             'NOMU_2':...
+             'NOMU_Neural_Network_2':...
             }
 
         """
+        if not model_key:
+            iterable = self.model_keys
+        else:
+            iterable = [model_key]
 
         estimates = OrderedDict()
-        predictions = self.predict(x=x)
-        for key, model in self.models.items():
-
+        for key in iterable:
+            predictions = self.predict(x=x, model_key=key)
             std_pred = predictions[key][1]
             mu_pred = predictions[key][0]
             estimates[key] = mu_pred, std_pred
@@ -804,18 +993,18 @@ class NOMU:
         for key, history in self.histories.items():
             plt1 = plt.plot(
                 history.get("r_output_layer_loss", None),
-                label="NOMU " + key[-1] + r": $\hat{r}_f$ loss",
+                label=key + ": r_loss",
                 linestyle="dotted",
             )
             plt.plot(
                 history.get("output_layer_loss", None),
-                label="NOMU " + key[-1] + r": $\hat{f}$ loss",
+                label=key + ": y_loss",
                 color=plt1[0].get_color(),
                 linestyle="dashed",
             )
             plt.plot(
                 history["loss"],
-                label="NOMU " + key[-1] + ": loss",
+                label=key + ": loss",
                 color=plt1[0].get_color(),
             )
             if history.get("val_loss", None) is not None:
@@ -887,7 +1076,10 @@ class NOMU:
         print("\nModels saved in:", absolutepath)
 
     def load_models(
-        self, absolutepath: str, model_numbers: Union[int, List[int]], verbose: int
+        self,
+        absolutepath: str,
+        model_numbers: Union[int, List[int]],
+        verbose: int,
     ) -> NoReturn:
 
         """Loads models, parameters, and histories for specified models via model_numbers
@@ -939,7 +1131,9 @@ class NOMU:
         for model_file, parameter_file, hist_file in zip(
             model_files, parameter_files, hist_files
         ):
-            key = "NOMU_{}".format(int(re.findall(r"\d+", model_file)[0]))
+            key = "NOMU_Neural_Network_{}".format(
+                int(re.findall(r"\d+", model_file)[0])
+            )
             print(key)
             print("Loading file:", hist_file)
             with open(os.path.join(absolutepath, hist_file), "rb") as f:
@@ -955,7 +1149,100 @@ class NOMU:
             )
             self.models[key] = model_NOMU
             self.flags[key] = model_NOMU.inputs[-1]
+            self.model_keys.append(key)
+            self.set_r_transform(
+                r_transform_name=self.parameters[key]["r_transform"],
+                r_min=self.parameters[key]["r_min"],
+                r_max=self.parameters[key]["r_max"],
+                model_key=key,
+            )
             if verbose > 0:
                 print("\nSummary:")
                 print(model_NOMU.summary())
             print()
+
+    def set_r_transform(
+        self, r_transform_name, r_min=None, r_max=None, model_key=None
+    ) -> NoReturn:
+        if not model_key:
+            iterable = self.model_keys
+        else:
+            iterable = [model_key]
+        for key in iterable:
+            # set or retrieve r_transform_name
+            self.parameters[key]["r_transform"] = r_transform_name
+
+            # if r_transform_name[:7] == "learned":
+            #     r_trafo = R_TRANSFORM()
+            #     r_trafo.load_transform(
+            #         absolutepath=r_transform_name[8:], verbose=1
+            #     )
+            #     self.r_transform_function[key] = r_trafo
+            if r_transform_name in ["custom_min_max", "relu_cut"]:
+                # set or retrieve r_min, r_max
+                if r_min is None:
+                    r_min = self.parameters[key]["r_min"]
+                else:
+                    self.parameters[key]["r_min"] = r_min
+                if r_max is None:
+                    r_max = self.parameters[key]["r_max"]
+                else:
+                    self.parameters[key]["r_max"] = r_max
+
+                self.r_transform_function[key] = lambda r: r_transform_function(
+                    r=r,
+                    r_min=r_min,
+                    r_max=r_max,
+                    r_transform=r_transform_name,
+                    learned_R_TRANSFORM=None,
+                )
+            elif r_transform_name == "id":
+                self.r_transform_function[key] = lambda r: r
+            else:
+                raise NotImplementedError(f"{r_transform_name} not implemented!\n")
+
+    def nll_calibration_r_grids(
+        self,
+        r_min_grid,
+        r_max_grid,
+        c_grid,
+        x_val,
+        y_val,
+        add_nlpd_constant=False,
+    ):
+        nll_dict_r_grids = {}
+        for key in self.model_keys:
+            r_transform_name = self.parameters[key]["r_transform"]
+            if r_transform_name in ["custom_min_max", "relu_cut"]:
+                nll_dict_r_grids.update(
+                    {key: {"nll": np.inf, "c": None, "r_min": 0, "r_max": 0}}
+                )
+                for r_min, r_max in product(r_min_grid, r_max_grid):
+                    self.set_r_transform(
+                        r_transform_name=r_transform_name,
+                        r_min=r_min,
+                        r_max=r_max,
+                        model_key=key,
+                    )
+                    nll_c = nll_calibration(
+                        model=self,
+                        x_val=x_val,
+                        y_val=y_val,
+                        c_grid=c_grid,
+                        add_nlpd_constant=add_nlpd_constant,
+                        model_key=key,
+                    )
+
+                    if nll_c[key]["nll_min"] < nll_dict_r_grids[key]["nll"]:
+                        nll_dict_r_grids[key]["nll"] = nll_c[key]["nll_min"]
+                        nll_dict_r_grids[key]["c"] = nll_c[key]["c_min"]
+                        nll_dict_r_grids[key]["r_min"] = r_min
+                        nll_dict_r_grids[key]["r_max"] = r_max
+                    # set NOMU r_transform parameters to calibrated values
+                self.set_r_transform(
+                    r_transform_name=r_transform_name,
+                    r_min=nll_dict_r_grids[key]["r_min"],
+                    r_max=nll_dict_r_grids[key]["r_max"],
+                    model_key=key,
+                )
+        return nll_dict_r_grids

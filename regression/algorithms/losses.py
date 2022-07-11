@@ -21,40 +21,50 @@ def r_loss_wrapper(
     c_exp: float,
     n_train: int,
     n_aug: int,
-    stable_aug_loss: bool = False,
+    stable_loss: int = 0,
     c_2: float = 1,
     mse: bool = False,
+    c_negativ_stable: float = 1,
+    c_huber_stable: float = 1,
 ) -> Callable[[np.array, np.array], float]:
 
     """Wrapper for the r_loss for our approach. (new)
 
-    Arguments
-    ----------
-    flag :
-        Bool, for data-dependent loss.
-    mu_sqr :
-        Weight of L2-loss-term of r on training points.
-    mu_exp :
-        Weight of exp-loss_term.
-    c_exp :
-        Weight of exponential decay in exp-loss_term.
-    n_train :
-        Number of training points.
-    n_aug :
-        Number of augmented points.
-    stable_aug_loss :
-        Bool for numerically more stable loss version for x<0.
-    c_2 :
-        Coefficient for squared term in more stable loss.
-    mse :
-        Bool, if mean (1/n_train) of l2_loss-term should be calculated.
-    Returns
-    -------
-    custom_loss :
-        Data-dependent loss function.
+        Arguments
+        ----------
+        flag :
+            Bool, for data-dependent loss.
+        mu_sqr :
+            Weight of L2-loss-term of r on training points.
+        mu_exp :
+            Weight of exp-loss_term.
+        c_exp :
+            Weight of exponential decay in exp-loss_term.
+        n_train :
+            Number of training points.
+        n_aug :
+            Number of augmented points.
+    # =============================================================================
+    #     stable_aug_loss :
+    #         Bool for numerically more stable loss version for x<0. Not used anymore
+    # =============================================================================
+        stable_loss :
+            int for choosing the version of stable_loss
+        c_2 :
+            Coefficient for squared term in more stable loss.
+        mse :
+            Bool, if mean (1/n_train) of l2_loss-term should be calculated.
+        c_negativ_stable :
+            float, constant for stable_loss = 2.
+        c_huber_stable :
+            float, huber constant for stable_loss = 2.
+
+        Returns
+        -------
+        custom_loss :
+            Data-dependent loss function.
 
     """
-
     if n_aug == 0:
         return lambda y_true, y_pred: K.mean(K.square(y_pred))
 
@@ -68,11 +78,62 @@ def r_loss_wrapper(
             + K.exp(-c_exp * K.relu(y_pred))
         ) / n_aug
 
+    def stable_exp_loss_summand2(y_true, y_pred):
+        return (
+            mu_exp
+            * (
+                c_negativ_stable * c_exp * K.relu(-y_pred)
+                + K.exp(-c_exp * K.relu(y_pred))
+            )
+            / n_aug
+        )
+
     def l2_loss_summand(y_true, y_pred):
         if mse:
             return (K.square(y_pred) * mu_sqr) / n_train
         else:
             return K.square(y_pred) * mu_sqr
+
+    if mse:
+
+        def l2_loss_summand_stable2(y_true, y_pred):
+            abs_error = tf.abs(y_pred)
+            two_tf = tf.convert_to_tensor(2.0, dtype=abs_error.dtype)
+            mu_sqr_divide_n_train_tf = tf.convert_to_tensor(
+                mu_sqr / n_train, dtype=abs_error.dtype
+            )
+            c_huber_stable_tf = tf.convert_to_tensor(
+                c_huber_stable, dtype=abs_error.dtype
+            )
+            return (
+                tf.where(
+                    abs_error <= c_huber_stable_tf,
+                    tf.square(y_pred),
+                    two_tf * c_huber_stable_tf * abs_error
+                    - tf.square(c_huber_stable_tf),
+                )
+                * mu_sqr_divide_n_train_tf
+            )
+
+    else:
+
+        def l2_loss_summand_stable2(y_true, y_pred):
+            y_pred = tf.cast(y_pred, dtype=K.floatx())
+            abs_error = tf.abs(y_pred)
+            two_tf = tf.convert_to_tensor(2.0, dtype=abs_error.dtype)
+            mu_sqr_tf = tf.convert_to_tensor(mu_sqr, dtype=abs_error.dtype)
+            c_huber_stable_tf = tf.convert_to_tensor(
+                c_huber_stable, dtype=abs_error.dtype
+            )
+            return (
+                tf.where(
+                    abs_error <= c_huber_stable_tf,
+                    tf.square(y_pred),
+                    two_tf * c_huber_stable_tf * abs_error
+                    - tf.square(c_huber_stable_tf),
+                )
+                * mu_sqr_tf
+            )
 
     def custom_stable_loss(y_true, y_pred):
         mask = tf.equal(
@@ -85,19 +146,36 @@ def r_loss_wrapper(
         )
         return K.sum(loss)
 
+    def custom_stable_loss2(y_true, y_pred):
+        mask = tf.equal(
+            flag, 0
+        )  # if flag==0 then it is a true datapoint, if flag==1 it is a artificial datapoint
+        loss = tf.where(
+            mask,
+            l2_loss_summand_stable2(y_true, y_pred),
+            stable_exp_loss_summand2(y_true, y_pred),
+        )
+        return K.sum(loss)
+
     def custom_loss(y_true, y_pred):
         mask = tf.equal(
             flag, 0
         )  # if flag==0 then it is a true datapoint, if flag==1 it is a artificial datapoint
         loss = tf.where(
-            mask, l2_loss_summand(y_true, y_pred), exp_loss_summand(y_true, y_pred)
+            mask,
+            l2_loss_summand(y_true, y_pred),
+            exp_loss_summand(y_true, y_pred),
         )
         return K.sum(loss)
 
-    if stable_aug_loss:
-        return custom_stable_loss
-    else:
+    if stable_loss == 0:
         return custom_loss
+    if stable_loss == 1:
+        return custom_stable_loss
+    if stable_loss == 2:
+        return custom_stable_loss2
+    else:
+        raise NotImplementedError("stable_loss {} not implemented.".format(stable_loss))
 
 
 # %%

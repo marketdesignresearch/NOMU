@@ -86,6 +86,7 @@ def plot_predictions(
     resolution_ROC: float = 0.01,
     interpolation: str = "linear",
     show_details_title: bool = False,
+    add_nlpd_constant: bool = False,
 ) -> Union[NoReturn, Dict[str, Tuple[float, float, float]]]:
 
     """Plots the bounds and Roc-curves for specified models (NOMU,GP,DO,BNN,DE).
@@ -210,7 +211,8 @@ def plot_predictions(
         Interpolation type for calculating the np.quantile on samples.
     show_details_title :
         Bool for showing details in the plot title.
-
+    add_nlpd_constant :
+        Bool if NLPD constant should be added
     Returns (optional)
     ------------------
     return_dict :
@@ -231,6 +233,7 @@ def plot_predictions(
     if x_val is not None:
         n_val = x_val.shape[0]
         ROC_list = []
+        NLPD_list = []
         label_list = []
         color_list = []
 
@@ -383,8 +386,9 @@ def plot_predictions(
 
             # calculate ROC data on validation set
             if x_val is not None:
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=key,
@@ -399,6 +403,7 @@ def plot_predictions(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
     if nomu_dj is not None:
         title_details += "UB Neural Network Disjoint Parameters\n " + ", ".join(
@@ -507,8 +512,9 @@ def plot_predictions(
 
             # calculate ROC data on validation set
             if x_val is not None:
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=key,
@@ -523,6 +529,7 @@ def plot_predictions(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
     # (iv) plot Gaussian Process (GP) models
     if gp is not None:
@@ -614,8 +621,9 @@ def plot_predictions(
 
             # calculating ROC data on validation set
             if x_val is not None:
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=key,
@@ -630,6 +638,7 @@ def plot_predictions(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
     # (v) plot MC Dropout Models
     if mc_dropout is not None:
@@ -728,8 +737,9 @@ def plot_predictions(
 
         # calculate ROC data based on alidation data
         if x_val is not None:
-            ROC_list, label_list, color_list = update_metrics_list(
+            ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                 ROC_list=ROC_list,
+                NLPD_list=NLPD_list,
                 label_list=label_list,
                 color_list=color_list,
                 label=key,
@@ -745,6 +755,7 @@ def plot_predictions(
                 cp_max=cp_max_ROC,
                 resolution=resolution_ROC,
                 interpolation=interpolation,
+                add_nlpd_constant=add_nlpd_constant,
             )
 
     # (vi) plot Deep Ensemble Models
@@ -814,8 +825,9 @@ def plot_predictions(
 
             # calculate ROC data based on validation data
             if x_val is not None:
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=ensemble_key,
@@ -830,6 +842,7 @@ def plot_predictions(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
 
         title_details = title_details + "\nDeep Ensemble Parameters:\n"
@@ -928,8 +941,9 @@ def plot_predictions(
 
             # calculate ROC data based on validation data
             if x_val is not None:
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=ensemble_key,
@@ -944,6 +958,7 @@ def plot_predictions(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
 
         title_details = title_details + "\nHyper Deep Ensemble Parameters:\n"
@@ -1010,6 +1025,7 @@ def plot_predictions(
     if x_val is not None:
         return_dict = ROC_plot(
             ROC_list,
+            NLPD_list,
             label_list,
             color_list,
             logy=logy_ROC,
@@ -1020,6 +1036,10 @@ def plot_predictions(
             bounds_variant_GP=bounds_variant_GP,
             bounds_variant_DE=bounds_variant_DE,
             bounds_variant_NOMU=bounds_variant_NOMU,
+            bounds_variant_HDE=bounds_variant_HDE,
+            c_max=c_max_ROC,
+            custom_c_grid=custom_c_grid_ROC,
+            resolution=resolution_ROC,
         )
 
         return return_dict
@@ -1087,6 +1107,7 @@ def plot_predictions_2d(
     colorlimits: Optional[List[float]] = None,
     figsize: Tuple[int, int] = (16, 9),
     only_uncertainty: bool = False,
+    add_nlpd_constant: bool = False,
 ) -> Union[NoReturn, Dict[str, Tuple[float, float, float]]]:
 
     """Plots the bounds and Roc-curves for specified models (NOMU,GP,DO,BNN,DE).
@@ -1214,7 +1235,8 @@ def plot_predictions_2d(
         Size of figure, e.g. (16,9).
     only_uncertainty :
         Bool for plotting the uncertainty only and not the upper bound of the credible interval.
-
+    add_nlpd_constant :
+        Bool if NLPD constant should be added
     Returns (optional)
     ------------------
     return_dict :
@@ -1226,6 +1248,7 @@ def plot_predictions_2d(
     if x_val is not None:
         n_val = x_val.shape[0]
         ROC_list = []
+        NLPD_list = []
         label_list = []
         color_list = []
 
@@ -1338,8 +1361,9 @@ def plot_predictions_2d(
             # calculate ROC data
             if x_val is not None:
                 mu_predictions_val, std_predictions_val = estimates_val[key]
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=key,
@@ -1354,6 +1378,7 @@ def plot_predictions_2d(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
     if nomu_dj is not None:
         estimates = nomu_dj.calculate_mean_std(x=x_grid)  # estimate mean and std
@@ -1413,8 +1438,9 @@ def plot_predictions_2d(
             # calculate ROC data
             if x_val is not None:
                 mu_predictions_val, std_predictions_val = estimates_val[key]
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=key,
@@ -1429,6 +1455,7 @@ def plot_predictions_2d(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
     # (iv) plot MC Dropout Models
     if mc_dropout is not None:
@@ -1514,8 +1541,9 @@ def plot_predictions_2d(
 
             # calculate ROC data based on validation data
             if x_val is not None:
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=key,
@@ -1531,6 +1559,7 @@ def plot_predictions_2d(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
 
     # (v) plot Gaussian Process (GP) Models
@@ -1610,8 +1639,9 @@ def plot_predictions_2d(
 
         # calculating ROC data on validation set
         if x_val is not None:
-            ROC_list, label_list, color_list = update_metrics_list(
+            ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                 ROC_list=ROC_list,
+                NLPD_list=NLPD_list,
                 label_list=label_list,
                 color_list=color_list,
                 label=key,
@@ -1626,6 +1656,7 @@ def plot_predictions_2d(
                 cp_max=cp_max_ROC,
                 resolution=resolution_ROC,
                 interpolation=interpolation,
+                add_nlpd_constant=add_nlpd_constant,
             )
 
     # (vi) plot Deep Ensemble Models
@@ -1701,8 +1732,9 @@ def plot_predictions_2d(
 
             # calculate ROC data based on validation data
             if x_val is not None:
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=ensemble_key,
@@ -1717,6 +1749,7 @@ def plot_predictions_2d(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
 
     # (vii) plot Hyper Deep Ensemble
@@ -1792,8 +1825,9 @@ def plot_predictions_2d(
 
             # calculate ROC data based on validation data
             if x_val is not None:
-                ROC_list, label_list, color_list = update_metrics_list(
+                ROC_list, NLPD_list, label_list, color_list = update_metrics_list(
                     ROC_list=ROC_list,
+                    NLPD_list=NLPD_list,
                     label_list=label_list,
                     color_list=color_list,
                     label=ensemble_key,
@@ -1808,6 +1842,7 @@ def plot_predictions_2d(
                     cp_max=cp_max_ROC,
                     resolution=resolution_ROC,
                     interpolation=interpolation,
+                    add_nlpd_constant=add_nlpd_constant,
                 )
 
     # (viii) save plot and title details and ROC
@@ -1856,9 +1891,10 @@ def plot_predictions_2d(
 
     if x_val is not None:
         return_dict = ROC_plot(
-            ROC_list,
-            label_list,
-            color_list,
+            ROC_list=ROC_list,
+            NLPD_list=NLPD_list,
+            label_list=label_list,
+            color_list=color_list,
             logy=logy_ROC,
             linethreshy=linethreshy_ROC,
             savepath=ROC_plot_path if save else None,
@@ -1867,6 +1903,9 @@ def plot_predictions_2d(
             bounds_variant_GP=bounds_variant_GP,
             bounds_variant_DE=bounds_variant_DE,
             bounds_variant_NOMU=bounds_variant_NOMU,
+            c_max=c_max_ROC,
+            custom_c_grid=custom_c_grid_ROC,
+            resolution=resolution_ROC,
         )
         return return_dict
 
@@ -2485,8 +2524,7 @@ def plot_irradiance(
                 xPlot,
                 mu_predictions,
                 linewidth=linewidth,
-                label="GP"
-                + r": $\hat{f}$",
+                label="GP" + r": $\hat{f}$",
                 linestyle="-",
                 color="C" + str(col),
             )
@@ -2573,8 +2611,7 @@ def plot_irradiance(
                 xPlot,
                 mu_predictions,
                 linewidth=linewidth,
-                label="MCDO"
-                + r": $\hat{f}$",
+                label="MCDO" + r": $\hat{f}$",
                 color="C" + str(col),
             )
             # plot bounds
@@ -2674,8 +2711,7 @@ def plot_irradiance(
                 xPlot,
                 mu_predictions,
                 linewidth=linewidth,
-                label="DE"
-                + r": $\hatf$",
+                label="DE" + r": $\hatf$",
                 color="C" + str(col),
             )
             # plot the bounds
@@ -2768,8 +2804,7 @@ def plot_irradiance(
                 xPlot,
                 mu_predictions,
                 linewidth=linewidth,
-                label="HDE"
-                + r": $\hatf$",
+                label="HDE" + r": $\hatf$",
                 color="C" + str(col),
             )
             # plot the bounds
@@ -2826,6 +2861,7 @@ def plot_irradiance(
 # %%
 def ROC_plot(
     ROC_list: List[np.array],
+    NLPD_list: List[np.array],
     label_list: List[str],
     color_list: List[str],
     logy: bool = False,
@@ -2833,11 +2869,13 @@ def ROC_plot(
     linethreshy: float = 0.1,
     captured_flag: bool = True,
     bounds_variant_DO: str = "standard",
-    bounds_variant_DO2: str = "standard",
-    bounds_variant_BNN: str = "standard",
     bounds_variant_GP: str = "standard",
     bounds_variant_DE: str = "standard",
     bounds_variant_NOMU: str = "standard",
+    bounds_variant_HDE: str = "standard",
+    c_max: int = 100,
+    custom_c_grid: Optional[Iterable[float]] = None,
+    resolution: float = 0.01,
 ) -> Dict[str, Tuple[float, float, float]]:
 
     """Creates Roc plot of all considered models.
@@ -2848,6 +2886,10 @@ def ROC_plot(
         List of return values of custom_ROC (i.e., np.array of shape
         (#of c values required for full coverage, 5) with
         columns: |coverage probability|mean width|mean log width|nlpd|c-value|).
+    NLPD_list :
+        List of nlpd values on a custom c_grid (i.e., np.array of shape
+        (#of c values in c_grid, ) with
+        nll values).
     label_list :
         List of labels for each model for plot title and legend.
     color_list :
@@ -2867,12 +2909,6 @@ def ROC_plot(
         Variant for calculation of uncertainty bounds. For DO one has the options 'standard': [mean+/-c_DO*std] or
         'sample': [lower_sample_quantile[c_DO], upper_sample_quantile[c_DO]] on how the credible intervals are computed,
         i.e, lower_sample_quantile[c_DO]/upper_sample_quantile[c_DO] is given F_emp^-1((1-/+c_DO)/2), where F_emp denotes the empirical cdf of a set of samples.
-    bounds_variant_DO2 :
-        Variant for calculation of uncertainty bounds. For DO2 one has the options 'standard': [mean+/-c_DO*std].
-    bounds_variant_BNN :
-        Variant for calculation of uncertainty bounds. For BNN one has the options 'standard': [mean+/-c_BNN*std] or
-        'sample': [lower_sample_quantile[c_BNN], upper_sample_quantile[c_DO]] on how the credible intervals are computed,
-        i.e, lower_sample_quantile[c_BNN]/upper_sample_quantile[c_BNN] is given F_emp^-1((1-/+c_BNN)/2), where F_emp denotes the empirical cdf of a set of samples.
     bounds_variant_GP :
         Variant for calculation of uncertainty bounds. For GaussianProcess one has the options 'standard': [mean+/-c_GP*std] or
         'normal': [mean+/-normal_quantile[c_GP]*std] on how the credible intervals are computed.
@@ -2882,16 +2918,58 @@ def ROC_plot(
      bounds_variant_NOMU :
         Variant for calculation of uncertainty bounds. For NOMU one has the options 'standard': [y+/-c_NOMU*r] or
         'normal': [y+/-normal_quantile[c_NOMU]*r] on how the credible intervals are computed.
+    bounds_variant_HDE :
+        Variant for calculation of uncertainty bounds. For HyperDeepEnsemble one has the options 'standard': [mean+/-c_HDE*std] or
+        'normal': [mean+/-normal_quantile[c_HDE]*std] on how the credible intervals are computed.
+    custom_c_grid_ROC :
+        Grid for c values to create the ROC plot.
+    cp_max_ROC:
+        Maximal coverage probability considered in the ROC.
+    resolution_ROC:
+        Resolution of grid of c-values considered in the ROC.
+
     Returns
     -------
         return_dict :
-            Dict of 3 (one for each of MW, MlogW and NLPD) dicts consisting
-            of AUC's, Max std-factor's/prob's for each model.
-
+            Dict of 4 (one for each of MW, MlogW, minNLPD and NLPD-grid) dicts consisting
+            of AUC's, Max std-factor's/prob's and NLPD grid for each model.
     """
 
-    # Return AUC's, Max Max std-factor's/prob's and threshhold factor's/prob's in dict for each model
     return_dict = {}
+
+    # save NLPD grids for different methods in return dict
+    return_dict_NLPD_grid = {}
+    plt.figure()
+    for i, n in enumerate(NLPD_list):
+        return_dict_NLPD_grid[label_list[i]] = n
+        # custom grid
+        if custom_c_grid is not None:
+            plt.plot(custom_c_grid, n, label=label_list[i], color=color_list[i])
+        # standard linear grid
+        else:
+            print("n", n)
+            plt.plot(
+                np.arange(0, c_max, resolution),
+                n,
+                label=label_list[i],
+                color=color_list[i],
+            )
+    plt.legend()
+    plt.xscale("symlog")
+    plt.yscale("symlog")
+    plt.grid(which="both")
+    plt.ylabel("")
+    plt.xlabel("c")
+    plt.title("NLPD_grid", fontsize=7)
+    plt.tight_layout()
+    if savepath is not None:
+        plt.savefig(
+            savepath.replace("Roc", "NLPD_grid") + ".pdf",
+            format="pdf",
+            transparent=True,
+        )
+        plt.close()
+    return_dict["NLPD_grid"] = return_dict_NLPD_grid
 
     for j, y in enumerate(["MW", "MlogW", "NLPD"]):
         plt.figure()
@@ -2915,7 +2993,12 @@ def ROC_plot(
                 roc = roc[inf_row:, :]
 
             # 1) plot roc
-            plt.plot(roc[:, 0], roc[:, 1 + j], label=label_list[i], color=color_list[i])
+            plt.plot(
+                roc[:, 0],
+                roc[:, 1 + j],
+                label=label_list[i],
+                color=color_list[i],
+            )
             # update maximum y value
             maxroc = max([maxroc, np.max(roc[:, 1 + j])])
 
@@ -2958,31 +3041,10 @@ def ROC_plot(
                             *[min_nll, min_c, min_cp, roc[-1, 0], roc[0, 0]]
                         )
                     )
-                elif label_list[i][0] == "M" and bounds_variant_DO2 in ["sample"]:
-                    title += (
-                        label_list[i]
-                        + " ("
-                        + bounds_variant_DO2
-                        + " variant)\n min NLPD: {:.5f}, min NLPD factor: {:.2f}, min NLPD cp: {:.2f}, max cp: {:.2f}, min cp: {:.2f}\n".format(
-                            *[min_nll, min_c, min_cp, roc[-1, 0], roc[0, 0]]
-                        )
-                    )
-                elif label_list[i][0] == "B" and bounds_variant_BNN in [
-                    "sample",
-                    "normal",
-                ]:
-                    title += (
-                        label_list[i]
-                        + " ("
-                        + bounds_variant_BNN
-                        + " variant)\n min NLPD: {:.5f}, min NLPD factor: {:.2f}, min NLPD cp: {:.2f}, max cp: {:.2f}, min cp: {:.2f}\n".format(
-                            *[min_nll, min_c, min_cp, roc[-1, 0], roc[0, 0]]
-                        )
-                    )
                 elif label_list[i][0] == "G" and bounds_variant_GP == "normal":
                     title += label_list[
                         i
-                    ] + "\n AUC: {:.5f}, min NLPD factor: {:.2f}, min NLPD cp: {:.2f}, max cp: {:.2f}, min cp: {:.2f}\n".format(
+                    ] + "\n min NLPD: {:.5f}, min NLPD factor: {:.2f}, min NLPD cp: {:.2f}, max cp: {:.2f}, min cp: {:.2f}\n".format(
                         *[min_nll, min_c, min_cp, roc[-1, 0], roc[0, 0]]
                     )
                 elif label_list[i][0] == "U" and bounds_variant_NOMU == "normal":
@@ -2999,6 +3061,15 @@ def ROC_plot(
                         label_list[i]
                         + " ("
                         + bounds_variant_DE
+                        + " variant)\n min NLPD: {:.5f}, min NLPD factor: {:.2f}, min NLPD cp: {:.2f}, max cp: {:.2f}, min cp: {:.2f}\n".format(
+                            *[min_nll, min_c, min_cp, roc[-1, 0], roc[0, 0]]
+                        )
+                    )
+                elif label_list[i][0] == "H" and bounds_variant_HDE == "normal":
+                    title += (
+                        label_list[i]
+                        + " ("
+                        + bounds_variant_HDE
                         + " variant)\n min NLPD: {:.5f}, min NLPD factor: {:.2f}, min NLPD cp: {:.2f}, max cp: {:.2f}, min cp: {:.2f}\n".format(
                             *[min_nll, min_c, min_cp, roc[-1, 0], roc[0, 0]]
                         )
@@ -3057,24 +3128,6 @@ def ROC_plot(
                             ]
                         )
                     )
-                elif label_list[i][0] == "B" and bounds_variant_BNN in [
-                    "sample",
-                    "normal",
-                ]:
-                    title += (
-                        label_list[i]
-                        + " ("
-                        + bounds_variant_BNN
-                        + " variant)\n AUC: {:.5f}, max prob: {:.2f}, thr prob: {:.2f}, max cp: {:.2f}, min cp: {:.2f}\n".format(
-                            *[
-                                auc,
-                                roc[-1, -1],
-                                roc[linethresh_ind, -1],
-                                roc[-1, 0],
-                                roc[0, 0],
-                            ]
-                        )
-                    )
                 elif label_list[i][0] == "G" and bounds_variant_GP == "normal":
                     title += label_list[
                         i
@@ -3117,6 +3170,21 @@ def ROC_plot(
                             ]
                         )
                     )
+                elif label_list[i][0] == "H" and bounds_variant_HDE == "normal":
+                    title += (
+                        label_list[i]
+                        + " ("
+                        + bounds_variant_HDE
+                        + " variant)\n AUC: {:.5f}, max prob: {:.2f}, thr prob: {:.2f}, max cp: {:.2f}, min cp: {:.2f}\n".format(
+                            *[
+                                auc,
+                                roc[-1, -1],
+                                roc[linethresh_ind, -1],
+                                roc[-1, 0],
+                                roc[0, 0],
+                            ]
+                        )
+                    )
                 else:
                     title += label_list[
                         i
@@ -3129,13 +3197,11 @@ def ROC_plot(
                             roc[0, 0],
                         ]
                     )
-
         plt.legend()
         if logy:
             y_label += f". log-thr={linethreshy}"
             plt.yscale("symlog", linthreshy=linethreshy)
 
-        # plt.yticks(ticks=yticks)
         plt.grid(which="both")
         plt.ylabel(y_label)
         plt.title(title, fontsize=7)
@@ -3285,3 +3351,424 @@ def finish_and_save_plot(
         else:
             print("No filepath for saving the bounds plot specified.")
             print("No filepath for saving the info file specified.")
+
+
+#%%
+def calculate_metrics(
+    x_val: Optional[np.array],
+    y_val: Optional[np.array],
+    filepath: Optional[str],
+    captured_flag: bool,
+    static_parameters: List[str],
+    # NOMU
+    nomu: Optional[NOMU],
+    dynamic_parameters_NOMU: List[str],
+    bounds_variant_NOMU: str,
+    # NOMU_DJ
+    nomu_dj: Optional[NOMU_DJ],
+    dynamic_parameters_NOMU_DJ: List[str],
+    bounds_variant_NOMU_DJ: str,
+    # GP
+    gp: Optional[GaussianProcess] = None,
+    dynamic_parameters_GP: List[str] = [],
+    bounds_variant_GP: str = "standard",
+    # DO
+    mc_dropout: Optional[McDropout] = None,
+    dynamic_parameters_DO: List[str] = [],
+    sample_size_DO: int = 100,
+    bounds_variant_DO: str = "standard",
+    # DE
+    deep_ensemble: Optional[DeepEnsemble] = None,
+    dynamic_parameters_DE: List[str] = [],
+    bounds_variant_DE: str = "standard",
+    # HDE
+    hyper_deep_ensemble: Optional[HyperDeepEnsemble] = None,
+    dynamic_parameters_HDE: List[str] = [],
+    bounds_variant_HDE: str = "standard",
+    #
+    save_plot: bool = False,
+    save_info: bool = False,
+    logy_ROC: bool = False,
+    linethreshy_ROC: float = 0.1,
+    cp_max_ROC: float = 1,
+    c_max_ROC: int = 100,
+    custom_c_grid_ROC: Optional[Iterable[float]] = None,
+    resolution_ROC: float = 0.01,
+    interpolation: str = "linear",
+    add_nlpd_constant: bool = False,
+    #
+    plot_std_boxplot: bool = False,
+    x_train: Optional[np.array] = None,
+) -> Union[NoReturn, Dict[str, Tuple[float, float, float]]]:
+
+    """
+    Calculates Metrics without plots. For detailed description see plot_predictions and plot_predictions_2d.
+    """
+
+    info_dict = {}
+    ROC_list = []
+    NLPD_list = []
+    label_list = []
+    color_list = []
+    colorcylcer = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
+
+    info = "Ground Truth Function"
+    info += "\nStatic Parameters:" + ", ".join(
+        [k + ":{}".format(v) for k, v in static_parameters.items()]
+    )
+    info_dict["True_Function"] = info
+
+    # (i) NOMU
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if nomu is not None:
+        estimates_val = nomu.calculate_mean_std(x=x_val)
+        if plot_std_boxplot:
+            estimates_train = nomu.calculate_mean_std(x=x_train[:, 0:-1])
+
+        for key, model in nomu.models.items():
+            mu_predictions_val, std_predictions_val = estimates_val[key]
+            (ROC_list, NLPD_list, label_list, color_list,) = update_metrics_list(
+                ROC_list=ROC_list,
+                NLPD_list=NLPD_list,
+                label_list=label_list,
+                color_list=color_list,
+                label=key,
+                color=next(colorcylcer),
+                variant=bounds_variant_NOMU,
+                m=mu_predictions_val,
+                sig=std_predictions_val,
+                y_val=y_val,
+                captured_flag=captured_flag,
+                c_max=c_max_ROC,
+                custom_c_grid=custom_c_grid_ROC,
+                cp_max=cp_max_ROC,
+                resolution=resolution_ROC,
+                interpolation=interpolation,
+                add_nlpd_constant=add_nlpd_constant,
+            )
+
+            short_key = "NOMU_{}".format(int(re.findall(r"\d+", key)[0]))
+            info = "\nStatic Parameters:" + ", ".join(
+                [k + ":{}".format(v) for k, v in static_parameters.items()]
+            )
+            info += "\nParameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in nomu.parameters[key].items()]
+            )
+            info = info.replace(", optimizer", "\noptimizer")
+            info_dict[short_key] = key + info
+            if plot_std_boxplot:
+                plot_sig_width_boxplot(
+                    np.squeeze(std_predictions_val),
+                    np.squeeze(estimates_train[key][1]),
+                    info=info,
+                    short_key=short_key,
+                )
+
+    # (ii) NOMU  DISJOINT
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if nomu_dj is not None:
+        estimates_val = nomu_dj.calculate_mean_std(x=x_val)
+        if plot_std_boxplot:
+            estimates_train = nomu_dj.calculate_mean_std(x=x_train[:, 0:-1])
+
+        for key, model in nomu_dj.models.items():
+            mu_predictions_val, std_predictions_val = estimates_val[key]
+            (ROC_list, NLPD_list, label_list, color_list,) = update_metrics_list(
+                ROC_list=ROC_list,
+                NLPD_list=NLPD_list,
+                label_list=label_list,
+                color_list=color_list,
+                label=key,
+                color=next(colorcylcer),
+                variant=bounds_variant_NOMU_DJ,
+                m=mu_predictions_val,
+                sig=std_predictions_val,
+                y_val=y_val,
+                captured_flag=captured_flag,
+                c_max=c_max_ROC,
+                custom_c_grid=custom_c_grid_ROC,
+                cp_max=cp_max_ROC,
+                resolution=resolution_ROC,
+                interpolation=interpolation,
+                add_nlpd_constant=add_nlpd_constant,
+            )
+
+            short_key = "NOMU_DJ_{}".format(int(re.findall(r"\d+", key)[0]))
+            info = "\nStatic Parameters:" + ", ".join(
+                [k + ":{}".format(v) for k, v in static_parameters.items()]
+            )
+            info += "\nParameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in nomu_dj.parameters[key].items()]
+            )
+            info = info.replace(", optimizer", "\noptimizer")
+            info_dict[short_key] = key + info
+            if plot_std_boxplot:
+                plot_sig_width_boxplot(
+                    np.squeeze(std_predictions_val),
+                    np.squeeze(estimates_train[key][1]),
+                    info=info,
+                    short_key=short_key,
+                )
+
+    # (iii) GP
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if gp is not None:
+        estimates_val = gp.calculate_mean_std(x=x_val)
+        if plot_std_boxplot:
+            estimates_train = gp.calculate_mean_std(x=x_train[:, 0:-1])
+
+        for key, model in gp.models.items():
+            mu_predictions_val, std_predictions_val = estimates_val[key]
+            (ROC_list, NLPD_list, label_list, color_list,) = update_metrics_list(
+                ROC_list=ROC_list,
+                NLPD_list=NLPD_list,
+                label_list=label_list,
+                color_list=color_list,
+                label=key,
+                color=next(colorcylcer),
+                variant=bounds_variant_GP,
+                m=mu_predictions_val,
+                sig=std_predictions_val,
+                y_val=y_val,
+                captured_flag=captured_flag,
+                c_max=c_max_ROC,
+                custom_c_grid=custom_c_grid_ROC,
+                cp_max=cp_max_ROC,
+                resolution=resolution_ROC,
+                interpolation=interpolation,
+                add_nlpd_constant=add_nlpd_constant,
+            )
+
+            short_key = "GP_{}".format(int(re.findall(r"\d+", key)[0]))
+            info = "\nStatic Parameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in static_parameters.items()]
+            )
+            info += "\nParameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in gp.parameters[key].items()]
+            )
+            info += "\nInitial: {} | Optimum: {} | Log-Marginal-Likelihood: {}".format(
+                gp.initial_kernels[key],
+                model.kernel_,
+                round(model.log_marginal_likelihood(model.kernel_.theta), 3),
+            )
+            info_dict[short_key] = key + info
+            if plot_std_boxplot:
+                plot_sig_width_boxplot(
+                    np.squeeze(std_predictions_val),
+                    np.squeeze(estimates_train[key][1]),
+                    info=info,
+                    short_key=short_key,
+                )
+
+    # (iv) MC-DO
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if mc_dropout is not None:
+        predictions_val = mc_dropout.predict(x=x_val, sample_size=sample_size_DO)
+        estimates_val = mc_dropout.calculate_mean_std(
+            x=None, predictions=predictions_val
+        )
+        if plot_std_boxplot:
+            estimates_train = mc_dropout.calculate_mean_std(x=x_train[:, 0:-1])
+
+        for key, model in mc_dropout.models.items():
+            mu_predictions_val, std_predictions_val = estimates_val[key]
+            (ROC_list, NLPD_list, label_list, color_list,) = update_metrics_list(
+                ROC_list=ROC_list,
+                NLPD_list=NLPD_list,
+                label_list=label_list,
+                color_list=color_list,
+                label=key,
+                color=next(colorcylcer),
+                variant=bounds_variant_DO,
+                m=mu_predictions_val,
+                sig=std_predictions_val,
+                y_val=y_val,
+                predictions=predictions_val,
+                captured_flag=captured_flag,
+                c_max=c_max_ROC,
+                custom_c_grid=custom_c_grid_ROC,
+                cp_max=cp_max_ROC,
+                resolution=resolution_ROC,
+                interpolation=interpolation,
+                add_nlpd_constant=add_nlpd_constant,
+            )
+
+            short_key = "MC-DO_{}".format(int(re.findall(r"\d+", key)[0]))
+            info = "\nStatic Parameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in static_parameters.items()]
+            )
+            info += "\nParameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in mc_dropout.parameters[key].items()]
+            )
+            info = info.replace(", optimizer", "\noptimizer")
+            info_dict[short_key] = key + info
+            if plot_std_boxplot:
+                plot_sig_width_boxplot(
+                    np.squeeze(std_predictions_val),
+                    np.squeeze(estimates_train[key][1]),
+                    info=info,
+                    short_key=short_key,
+                )
+
+    # (vi) DE
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if deep_ensemble is not None:
+        estimates_val = deep_ensemble.calculate_mean_std(x=x_val)
+        if plot_std_boxplot:
+            estimates_train = deep_ensemble.calculate_mean_std(x=x_train[:, 0:-1])
+
+        for ensemble_key, ensemble in deep_ensemble.models.items():
+            mu_predictions_val, std_predictions_val = estimates_val[ensemble_key]
+            (ROC_list, NLPD_list, label_list, color_list,) = update_metrics_list(
+                ROC_list=ROC_list,
+                NLPD_list=NLPD_list,
+                label_list=label_list,
+                color_list=color_list,
+                label=ensemble_key,
+                color=next(colorcylcer),
+                variant=bounds_variant_DE,
+                m=mu_predictions_val,
+                sig=std_predictions_val,
+                y_val=y_val,
+                captured_flag=captured_flag,
+                c_max=c_max_ROC,
+                custom_c_grid=custom_c_grid_ROC,
+                cp_max=cp_max_ROC,
+                resolution=resolution_ROC,
+                interpolation=interpolation,
+                add_nlpd_constant=add_nlpd_constant,
+            )
+
+            short_ensemble_key = "DE_{}".format(
+                int(re.findall(r"\d+", ensemble_key)[0])
+            )
+            info = "\nStatic Parameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in static_parameters.items()]
+            )
+            info += "\nParameters: " + ", ".join(
+                [
+                    k + ":{}".format(v)
+                    for k, v in deep_ensemble.parameters[ensemble_key].items()
+                ]
+            )
+            info = info.replace(", optimizer", "\noptimizer")
+            info_dict[short_ensemble_key] = ensemble_key + info
+            if plot_std_boxplot:
+                plot_sig_width_boxplot(
+                    np.squeeze(std_predictions_val),
+                    np.squeeze(estimates_train[ensemble_key][1]),
+                    info=info,
+                    short_key=short_ensemble_key,
+                )
+
+    # (vii) HDE
+    # ---------------------------------------------------------------------------------------------------------------------------
+    if hyper_deep_ensemble is not None:
+        estimates_val = hyper_deep_ensemble.calculate_mean_std(x=x_val)
+        if plot_std_boxplot:
+            estimates_train = hyper_deep_ensemble.calculate_mean_std(x=x_train[:, 0:-1])
+
+        for ensemble_key, ensemble in hyper_deep_ensemble.models.items():
+            mu_predictions_val, std_predictions_val = estimates_val[ensemble_key]
+            (ROC_list, NLPD_list, label_list, color_list,) = update_metrics_list(
+                ROC_list=ROC_list,
+                NLPD_list=NLPD_list,
+                label_list=label_list,
+                color_list=color_list,
+                label=ensemble_key,
+                color=next(colorcylcer),
+                variant=bounds_variant_HDE,
+                m=mu_predictions_val,
+                sig=std_predictions_val,
+                y_val=y_val,
+                captured_flag=captured_flag,
+                c_max=c_max_ROC,
+                custom_c_grid=custom_c_grid_ROC,
+                cp_max=cp_max_ROC,
+                resolution=resolution_ROC,
+                interpolation=interpolation,
+                add_nlpd_constant=add_nlpd_constant,
+            )
+
+            short_ensemble_key = "HDE_{}".format(
+                int(re.findall(r"\d+", ensemble_key)[0])
+            )
+            info = "\nStatic Parameters: " + ", ".join(
+                [k + ":{}".format(v) for k, v in static_parameters.items()]
+            )
+            info += "\nParameters: " + ", ".join(
+                [
+                    k + ":{}".format(v)
+                    for k, v in hyper_deep_ensemble.parameters[ensemble_key].items()
+                ]
+            )
+            info = info.replace(", optimizer", "\noptimizer")
+            info_dict[short_ensemble_key] = ensemble_key + info
+            if plot_std_boxplot:
+                plot_sig_width_boxplot(
+                    np.squeeze(std_predictions_val),
+                    np.squeeze(estimates_train[ensemble_key][1]),
+                    info=info,
+                    short_key=short_ensemble_key,
+                )
+    # (xv) save Metric plots and infos
+    # ---------------------------------------------------------------------------------------------------------------------------
+    savepath = None
+    ROC_plot_path = None
+    if save_info:
+        if filepath is not None:
+            dt = datetime.now().strftime("%d_%m_%Y_%H-%M-%S")
+
+            for key, v in info_dict.items():
+                if static_parameters.get("random_locations"):
+                    fname = "_seed{}_".format(static_parameters.get("seed")) + dt
+                else:
+                    fname = "_" + dt
+
+                # save info for each model
+                savepath = os.path.join(
+                    filepath, "{}_Info".format(key) + fname + ".txt"
+                )
+                with open(savepath, "w") as f:
+                    f.write(v)
+                f.close()
+
+            # savepath for ROC
+            if static_parameters.get("random_locations"):
+                ROC_plot_path = os.path.join(
+                    filepath,
+                    "Plot_Roc_seed{}_".format(static_parameters.get("seed")) + dt,
+                )
+
+            else:
+                ROC_plot_path = os.path.join(filepath, "Plot_Roc_" + dt)
+
+        else:
+            print("No filepath for saving the UB plot specified.")
+            print("No filepath for saving the info file specified.")
+            print(
+                "No filepath for saving the ROC plot specified."
+            ) if x_val is not None else None
+
+    return_dict = ROC_plot(
+        ROC_list=ROC_list,
+        NLPD_list=NLPD_list,
+        label_list=label_list,
+        color_list=color_list,
+        logy=logy_ROC,
+        linethreshy=linethreshy_ROC,
+        savepath=ROC_plot_path if save_plot else None,
+        captured_flag=captured_flag,
+        bounds_variant_DO=bounds_variant_DO,
+        bounds_variant_GP=bounds_variant_GP,
+        bounds_variant_DE=bounds_variant_DE,
+        bounds_variant_HDE=bounds_variant_HDE,
+        bounds_variant_NOMU=bounds_variant_NOMU,
+        c_max=c_max_ROC,
+        custom_c_grid=custom_c_grid_ROC,
+        resolution=resolution_ROC,
+    )
+    return return_dict
+
+
+# %%

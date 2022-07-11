@@ -32,11 +32,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 First navigate to the folder _regression_.
 
-#### C.1 To run a regression experiment on with your own data set
+#### C.0 To run a regression experiment on with your own data set
 
 1. Open the file *run_NOMU_own_your_own_data.py*
 
-2. IN the following example we provide example data *x_data.json* and *y_data.json*. To use your own data set replace those in the code below and load your own data instead.
+2. In the following example, we provide example data *x_data.json* and *y_data.json*. To use your own data set replace those in the code below and load your own data instead.
 
 ```python
 
@@ -52,28 +52,30 @@ input_dim = x.shape[1]
 
 ```
 
-2. Next, the X and y are scaled to $[-1, 1]^{input\\\_dim} \text{ and } [-1, 1]$, respectively.
+2. Next, input x and output y are scaled to $[-1, 1]^{input\\\_dim} \text{ and } [-1, 1]$, respectively.
 
 ```python
 
-# 1. scale training data: X to [-1,1]^input_dim, Y to [-1,1]^1
-x_maxs = np.max(x,axis=0)
-x_mins = np.min(x,axis=0)
-y_max = np.max(y)
-y_min = np.min(y)
+# 1. scale training data: x to [-1,1]^input_dim, y to [-1,1]^1 (recommended)
+normalize_data = True  # recommended to set to True for better learning
 
-for i, x_min in enumerate(x_mins):
-    x[:, i] = 2*((x[:, i] - x_min) / (x_maxs[i] - x_min)) - 1
+if normalize_data:
+    x_maxs = np.max(x, axis=0)
+    x_mins = np.min(x, axis=0)
+    y_max = np.max(y)
+    y_min = np.min(y)
 
-y = 2*((y - y_min) / (y_max - y_min)) - 1
+    for i, x_min in enumerate(x_mins):
+        x[:, i] = 2 * ((x[:, i] - x_min) / (x_maxs[i] - x_min)) - 1
 
-print(f'\nScaled X-Training Data of shape {x.shape}')
-print(x)
-print(f'\nScaled y-Training Data of shape {y.shape}')
-print(y)
+    y = 2 * ((y - y_min) / (y_max - y_min)) - 1
+
+    print(f"\nScaled X-Training Data of shape {x.shape}")
+    print(x)
+    print(f"\nScaled y-Training Data of shape {y.shape}")
+    print(y)
 ```
-
-2. Next, select *n_art*, the number of artificial input data points for the NOMU loss (term c). Currently, those are sampled uniformly from $[-1.1,1.1]$ (if you remove/change the scaling from point 1. above, you also need to change the range from where you sample uniformly at random the artificial input data points, i.e., *x_min_art* and *x_max_art*)
+2. Next, select *n_art*, the number of artificial input data points for the NOMU loss (term c). Currently, those are sampled uniformly from $[-1.1,1.1]$ (if you remove/change the scaling from point 1. above, you also need to change the range from where you sample uniformly at random the artificial input data points, i.e., *x_min_art* and *x_max_art*. NOTE: these changes have to be progated to the nomu class (fit method, set_augmentation_bounds method, etc.))
 
 ```python
 
@@ -82,8 +84,20 @@ print(y)
 n_art = 200  # number of artificial (augmented) input data points.
 #############
 
-x_min_art = -1.1 # change this value if your data has a different range than [-1,1]^d
-x_max_art = 1.1 # change this value if your data has a different range [-1,1]^d
+aug_in_training_range = False  # sample artificial training data only in training data range? If False, they are sampled from the normalized range.
+aug_range_epsilon = 0.05
+
+# find range to sample augmented data from
+if aug_in_training_range:
+    x_min_art = np.min(x, axis=0)
+    x_max_art = np.max(x, axis=0)
+else:
+    x_min_art = -1
+    x_max_art = 1
+margin = (x_max_art - x_min_art) * aug_range_epsilon
+x_min_art -= margin
+x_max_art += margin
+
 x_art = np.random.uniform(low=x_min_art, high=x_max_art, size=(n_art, x.shape[1])) # if you activate MCaug=True, these values do not matter because they will be overwritten internally by NOMU
 y_art = np.ones((n_art, 1)) # these values do not matter, only the dimension matters
 x = np.concatenate((x, np.zeros((n_train, 1))), axis=-1) # add 0-flag identifying a real training point
@@ -98,7 +112,7 @@ print(f'\ny NOMU Input Data of shape {y_nomu.shape} (real training points:{n_tra
 print(y_nomu)
 ```
 
-2. Next, select the NOMU HPs
+2. Next, select NOMU's HPs
 
 ```python
 # %% NOMU HPs
@@ -153,7 +167,11 @@ nomu.set_parameters(
     r_min=r_min,
     r_max=r_max,
     l2reg_sig=l2reg_sig,
-    side_layers=side_layers)
+    side_layers=side_layers,
+    normalize_data=normalize_data,
+    aug_in_training_range=aug_in_training_range,
+    aug_range_epsilon=aug_range_epsilon,
+    )
 
 nomu.initialize_models(verbose=verbose)
 nomu.compile_models(verbose=verbose)
@@ -180,24 +198,36 @@ new_x = np.array([[0,0],[0.5,0.5]]) # 2 new input points
 predictions = nomu.calculate_mean_std(new_x) # predict mean and model uncertainty
 
 mean, sigma_f = predictions['NOMU_1'] # extract them
-print(f'\nScaled-[-1,1]-Predictions mean:{mean} | sigma_f:{sigma_f}')
-mean_orig, sigma_f_orig = (y_max-y_min)*(mean+1)/2+y_min, (y_max-y_min)*(sigma_f+1)/2+y_min # rescale them to original scale
-print(f'\nPredictions mean:{mean_orig} | sigma_f:{sigma_f_orig}')
+
+if normalize_data:
+    print(f"\nScaled-[-1,1]-Predictions mean:{mean} | sigma_f:{sigma_f}")
+
+    mean_orig, sigma_f_orig = (y_max - y_min) * (mean + 1) / 2 + y_min, (
+        y_max - y_min
+    ) * (
+        sigma_f + 1
+    ) / 2 + y_min  # rescale them to original scale
+    print(f"\nPredictions mean:{mean_orig} | sigma_f:{sigma_f_orig}")
+else:
+    print(f"\nPredictions mean:{mean} | sigma_f:{sigma_f}")
+
 ```
 
 
 
-#### C.2 To run a regression experiment on any of the provided test functions over multiple seeds of synthetic data
-1.  Set the desired test function, seeds and parameters in the file simulation_synthetic_functions.py. 
+#### C.1 Toy Regression (Section 4.1.1)
+To run a toy regression experiment on any of the provided test functions over multiple seeds
+
+1.  Set the desired test function, seeds and parameters in the file simulation_toy_regression_section_4.1.1.py. 
 2.  Run:
     ```bash
-    $ python simulation_synthetic_functions.py
+    $ python simulation_toy_regression_section_4.1.1.py
     ```
-Additionally to the console printout a folder Multiple_Seeds\_\<function_name\>\_\<date\>\_\<time\> will be created in the regression folder, where the UBs-plots and ROC-plots can be found.
+Additionally to the console printout a folder Multiple_Seeds\_\<function_name\>\_\<date\>\_\<time\> will be created in the regression folder, where the UBs-plots, history-plots and metric-plots can be found.
 
-**_NOTE:_** Parameters are set in python simulation_synthetic_functions.py such that one run for the Levy1D function is performed and one reconstructs **Figure 4** from the paper (runtime ~5 mins)
+**_NOTE:_** Parameters are set in simulation_toy_regression_section_4.1.1.py such that one run for the Levy1D function is performed and one reconstructs **Figure 4** from the paper (runtime ~5 mins)
 
-**_NOTE:_** To enable a head-to-head comparison of **Table 1** and **Table 2**:
+**_NOTE:_** To enable a head-to-head comparison of **Table 1** and **Tables 5-8**:
 
 1. We use for the 500 runs in 1D and 2D regression the seeds 501--1000 (unparallelized runtime on single local machine for one test function ~5*500min=42h). Concretely, we then set in simulation_synthetic_functions.py the parameters
     - _number_of_instances = 500_
@@ -211,17 +241,45 @@ Additionally to the console printout a folder Multiple_Seeds\_\<function_name\>\
 3.  These experiments are conducted with Tensorflow using the CPU only and no GPU
 
 
-#### C.3 To run the real data experiment (solar irradiance data interpolation [4]) 
-1. Set the desired parameters in the file simulation_synthetic_functions.py.
+#### C.2 Generative Test-Bed (Section 4.1.2)
+To run a generative test-bed experiment over multiple seeds
+
+1.  Set the desired dimension, seeds and parameters in the file simulation_generative_testbed_section_4.1.2.py. 
+2.  Run:
+    ```bash
+    $ python simulation_generative_testbed_section_4.1.2.py
+    ```
+Additionally to the console printout a folder Multiple_Seeds_GaussianBNN\_\<date\>\_\<time\> will be created in the regression folder, where the UBs-plots, history-plots and metric-plots can be found.
+
+**_NOTE:_** Parameters are set in simulation_generative_testbed_section_4.1.2.py such that one run for a 1D GaussianBNN test function is performed (runtime ~5 mins)
+
+**_NOTE:_** To enable a head-to-head comparison of **Table 2**:
+
+1. We use for the 200 runs the seeds 501--700 (unparallelized runtime on single local machine for one test function ~5*500min=17h). Concretely, we then set in simulation_generative_testbed_section_4.1.2.py the parameters
+    - _number_of_instances = 200_
+    - _my_start_seed = 501_
+2.  We conduct these experiments on
+    - **system:** Linux
+    - **version:** SMP Debian 4.19.160-2 (2020-11-28)
+    - **platform:** Linux-4.19.0-13-amd64-x86_64-with-debian-10.8
+    - **machines:** Intel Xeon E5-2650 v4 2.20GHz processors with 48 logical cores and 128GB RAM and Intel E5 v2 2.80GHz processors with 40 logical cores and 128GB RAM
+    - **python:** Python 3.7.3 [GCC 8.3.0] on linux
+3.  These experiments are conducted with Tensorflow using the CPU only and no GPU
+
+
+
+#### C.3 Solar Irradiance Time Series (Section 4.1.3)
+To run the solar irradiance data interpolation [4] 
+1. Set the desired parameters in the file simulation_solar_irradiance_section_4.1.3.py.
 2. Run:
     ```bash
-    $ python simulation_solar_irradiance.py
+    $ python simulation_solar_irradiance_section_4.1.3.py
     ```
-When finished a folder called Irradiance\_\<date\>\_\<time\> will be created in the regression folder, where the UBs-plots and ROC-plots can be found.
+When finished a folder called Irradiance\_\<date\>\_\<time\> will be created in the regression folder, where the UBs-plots, history-plots and metric-plots can be found.
 
-**_NOTE:_** To enable a head-to-head comparison of **Figure 5**:
+**_NOTE:_** To enable a head-to-head comparison of **Figure 5** and **Figure 13**:
 
-1. We set for this experiment the seed equal to 655 (runtime ~2h). Concretely, we set in simulation_solar_irradiance.py the parameter
+1. We set for this experiment the seed equal to 655 (runtime ~2h). Concretely, we set in simulation_solar_irradiance_section_4.1.3.py the parameter
     - _SEED=655_
 2. These experiments were conducted on
     - **system:** Linux
@@ -231,6 +289,22 @@ When finished a folder called Irradiance\_\<date\>\_\<time\> will be created in 
     - **python:** Python 3.8.7 [GCC 10.2.1 20201125 (Red Hat 10.2.1-9)] on linux
 3.  These experiments are conducted with Tensorflow using the CPU only and no GPU
 
+#### C.4 UCI data sets (Section 4.1.4)
+To run the regression on a UCI or UCI gap data set
+1. Set the desired parameters in the file simulation_uci_section_4.1.4.py.
+2. Run:
+    ```bash
+    $ python simulation_uci_section_4.1.4.py [experiment type] [gap dimension] [seed]
+    ```
+where experiment type is one of 'UCI' or 'UCI-Gap', gap dimension is the dimension in the input training data for which a gap should be introduced (ignored when experiment type=='UCI') and a basic seed for the experiment (train/val/test split and initializations build upon this seed).
+
+When finished a folder called [experiment type]\_[data set name]\_\<date\>\_\<time\> will be created in the regression folder, where models are saved.
+
+**_NOTE:_** Parameters are set in simulation_uci_section_4.1.4.py such that the dataset **Boston** is used
+
+**_NOTE:_** For creating **Table 3** (UCI) we used the seeds 1--20.
+
+**_NOTE:_** For creating **Table 13** (UCI Gap) we used the seeds 0--din, where din denotes the input dimension of the corresponding UCI-Gap dataset, i.e. we conduct din-many runs where we create for each dimension a gap.
 
 
 ## D. Bayesian Optimization Experiments

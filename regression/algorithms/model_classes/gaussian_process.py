@@ -15,6 +15,8 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
 import re
 from typing import NoReturn, Union, List, Dict, Tuple, Optional
+from sklearn.preprocessing import StandardScaler
+
 
 # Own Modules
 from algorithms.util import pretty_print_dict, timediff_d_h_m_s
@@ -37,6 +39,10 @@ class GaussianProcess:
         Parametersdict for each model.
     initial_kernels : OrderedDict
         Initial kernels for each model.
+    scaler_input: StandardScaler
+        Scaling input to mean=0, std=1
+    scaler_target: StandardScaler
+        Scaling target to mean=0, std=1
 
     Methods
     -------
@@ -64,13 +70,15 @@ class GaussianProcess:
 
     def __init__(self) -> NoReturn:
 
-        """Constructor of the class GP."""
+        """Constructor of the class UBNN."""
 
         # Attributes
         self.models = OrderedDict()
         self.parameters = OrderedDict()
         self.initial_kernels = OrderedDict()
         self.model_keys = []
+        self.scaler_input = StandardScaler()
+        self.scaler_target = StandardScaler()
 
     def set_parameters(
         self,
@@ -89,6 +97,7 @@ class GaussianProcess:
         copy_X_train: Union[bool, List[bool]] = True,
         random_state: Optional[Union[int, List[int]]] = None,
         std_min: Optional[Union[float, List[float]]] = 0,
+        normalize_data: Optional[Union[bool, List[bool]]] = False,
     ) -> NoReturn:
 
         """Sets the attributes of the class GaussianProcess.
@@ -125,6 +134,9 @@ class GaussianProcess:
             Determines random number generation used to initialize the centers.
         std_min : float
             Minimum predictied std for numerical stability in AUC plots.
+        normalize_data : bool
+                If true, data is normalized s.t. mean=0, std=1
+
         """
 
         # set parameters
@@ -144,6 +156,7 @@ class GaussianProcess:
             "copy_X_train",
             "random_state",
             "std_min",
+            "normalize_data",
         ]
         if not isinstance(kernel, list):
             kernel = [kernel]
@@ -175,6 +188,8 @@ class GaussianProcess:
             random_state = [random_state]
         if not isinstance(std_min, list):
             std_min = [std_min]
+        if not isinstance(normalize_data, list):
+            normalize_data = [normalize_data]
         parameters_values = list(
             product(
                 kernel,
@@ -192,11 +207,14 @@ class GaussianProcess:
                 copy_X_train,
                 random_state,
                 std_min,
+                normalize_data,
             )
         )
 
         parameters = [OrderedDict(zip(parameter_keys, x)) for x in parameters_values]
-        self.model_keys = ["GP_{}".format(i + 1) for i in range(len(parameters))]
+        self.model_keys = [
+            "Gaussian_Process_{}".format(i + 1) for i in range(len(parameters))
+        ]
         # Set Attributes
         i = 0
         for key in self.model_keys:
@@ -324,7 +342,17 @@ class GaussianProcess:
                 "**************************************************************************"
             )
         for key, model in self.models.items():
-            print(key)
+            p = self.parameters[key]
+
+            if p["normalize_data"]:
+                print("Fit function: Fit & Transform x-train...")
+                self.scaler_input.fit(x)
+                x = self.scaler_input.transform(x)
+                print("Fit function: Fit & Transform y-train...")
+                y = np.array(y).reshape(-1, 1)
+                self.scaler_target.fit(y)
+                y = self.scaler_target.transform(y)
+
             start = datetime.now()
             self.models[key].fit(x, y)
             end = datetime.now()
@@ -348,18 +376,28 @@ class GaussianProcess:
         -------
         predictions:
             A dictionary that stores the predictions for each model, e.g., for x = np.array([[x_1],[x_2]])
-            {'GP_1':[array([[mean_1],[mean_2]], dtype=float32),
+            {'Gaussian_Process_1':[array([[mean_1],[mean_2]], dtype=float32),
                                     array([[std_1],[std_2]], dtype=float32)],
              'Gaussian_process_2':...
             }
 
         """
 
-        # reshape (n,) -> (n,1) only in 1d TODO: discuss later xPlot in 1d
+        # reshape (n,) -> (n,1) only in 1d
         x = x.reshape(-1, 1) if len(x.shape) == 1 else x
         predictions = OrderedDict()
         for key, model in self.models.items():
+            if self.parameters[key]["normalize_data"]:
+                print("Prediction function: Transform x-test...")
+                x = self.scaler_input.transform(x)
+
             mu_pred, std_pred = model.predict(x, return_std=True)
+
+            if self.parameters[key]["normalize_data"]:
+                print("Prediction function: Inverse-transform y(x-test)...")
+                mu_pred = self.scaler_target.inverse_transform(mu_pred)
+                std_pred = std_pred * self.scaler_target.scale_
+
             mu_pred = np.asarray(mu_pred.reshape(-1, 1), dtype=np.float32)
             std_pred = (
                 np.asarray(std_pred.reshape(-1, 1), dtype=np.float32)
@@ -383,9 +421,9 @@ class GaussianProcess:
         -------
         predictions:
             A dictionary that stores the predictions for each model, e.g., for x = np.array([[x_1],[x_x]])
-            {'GP_1':(array([[mean_1],[mean_2]], dtype=float32),
+            {'Gaussian_Process_1':(array([[mean_1],[mean_2]], dtype=float32),
                                     array([[std_1],[std_2]], dtype=float32)),
-             'GP_2':...
+             'Gaussian_Process_2':...
             }
 
         """
@@ -481,7 +519,7 @@ class GaussianProcess:
             "**************************************************************************"
         )
         for model_file, parameter_file in zip(model_files, parameter_files):
-            key = "GP_{}".format(int(re.findall(r"\d+", model_file)[0]))
+            key = "Gaussian_Process_{}".format(int(re.findall(r"\d+", model_file)[0]))
             print(key)
             print("Loading file:", parameter_file)
             with open(os.path.join(absolutepath, parameter_file), "rb") as f:
