@@ -1,0 +1,84 @@
+Boston: 
+- housing in the area of Boston Mass
+- daten erhoben von U.S Census Service
+- MEDV var. seems to be censored at 50.00
+- n = 506, d=12+2, y1=nox, y2=MEDV (?)
+>very diverse variables: economic, unknown source, ...
++ Optimal noise level found = 0.06079662897698201
++UCI-Gap: Percentage of training data is 2.96
+
+
+Concrete: 
+- concrete compressive strength is a highly nonlinear function of age and ingredients
+- n = 1030, d=8+1, y=Concrete compressive strength
+>experimental/measurements
++ Optimal noise level found = 0.06776733107048108
++ UCI-Gap: Percentage of training data is 2.81
+
+Energy: 
+- assessing the heating load and cooling load requirements of buildings (energy eff.) as a function of building parameters
+- n=768, d=8+2, y1=Heating Load, y2=Cooling load (?)
+>ground truth is simulation result, no data noise?
++ Optimal noise level found = 0.0014706405786999298
++ UCI-Gap: Percentage of training data is 1.95
+
+
+Kin8nm:
+- forward kinematics of an 8 link robot arm
+- highly non-linear and **medium noisy**
+- n=8192, d=8+1, y=idx. 9
+>?
++ Optimal noise level found = 0.0485722816060937, took very long!
++ UCI-Gap: Percentage of training data is 3.97
+
+Naval: 
+- from a sophisticated simulator of a Gas Turbines (GT), mounted on a Frigate characterized by a COmbined Diesel eLectric And Gas (CODLAG) propulsion plant type (?)
+- numerical simulator of a naval vessel (Frigate) characterized by a Gas Turbine (GT) propulsion plant, **no data noise?**
+- n = 11934, d=16+2, y1, y2 (?)
+> simulation as ground truth
++ Killed
++UCI-Gap: Percentage of training data is 39.7
+
+
+CCPP: 
+- averages are taken from various sensors located around the plant that record the ambient variables every second. The variables are given without normalization **data noise from sensors(?)**
+- n=9568, d=4+1, y=Net hourly electrical energy output
+>meaurements/experimental
+>noise scheint hoch
++Killed
++Optimal noise level found = 0.05273130604456119 for n=5000!
++UCI-Gap: Percentage of training data is 24.8
+
+
+Protein:
+- Physicochemical Properties of Protein Tertiary Structure **noise?**
+- n=45730, d=9+1, y=RMSD
+>measurements or simulation based?
++ kill
++UCI-Gap: Percentage of training data is 19.1
+
+
+Wine: 
+- physicochemical (inputs) and sensory (the output) variables are available, **noise?**
+- n=4898, d=11+1, y=quality
+>measurements
++ Optimal noise level found = 9.999999999999997e-06
++ UCI-Gap: Percentage of training data is 2.18
+
+
+Yacht:
+- predict the hydodynamic performance of sailing yachts from dimensions and velocity, **prob. low data noise?**
+- n=308, d=6+1, y=Residuary resistance per unit weight of displacement
+> (easy?) measurements, model experiments/measurements
++ Optimal noise level found = 9.458978209579858e-05
++ UCI-Gap: Percentage of training data is 3.57
+
+YearMSD:
+- Prediction of the release year of a song from audio features
+- subset of the Million Song Dataset -> much information?
+- **relatively noiseless?**
+- n=515345, d=90+1, y=year
+> easy statistics, but also subj. measures?
++ problem, too big
++ UCI-Gap: Percentage of training data is 0.00
+
