@@ -1,7 +1,12 @@
 # NOMU:Neural Optimization-based Model Uncertainty
 Published at [ICML 2022](https://proceedings.mlr.press/v162/heiss22a.html)
 
-This is a piece of software used for performing experiments on NOMU uncertainty bounds and the three popular benchmarks (i) Monte-Carlo Dropout [1], (ii) Deep Ensembles [2], (iii) Hyper Deep Ensembles [3] and (iv) Gaussian Process. The experiments are described in detail in the attached paper.
+This is a piece of software used for performing experiments on NOMU uncertainty bounds and the three popular benchmarks (i) Monte-Carlo Dropout [1], (ii) Deep Ensembles [2], (iii) Hyper Deep Ensembles [3] and (iv) Gaussian Process. The experiments are described in detail in the corresponding paper:
+
+**NOMU:Neural Optimization-based Model Uncertainty**<br/>
+Jakob Weissteiner, Jakob Heiss, Hanna Wutte, Sven Seuken, and Josef Teichmann.<br/>
+*In Proceedings of the 39th International Conference on Machine Learning (ICML’22), Baltimore, USA, July 2022.*<br/>
+Full paper version including appendix: [[pdf](https://arxiv.org/abs/2102.13640)]
 
 
 ## A. Requirements
